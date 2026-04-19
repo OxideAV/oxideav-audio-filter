@@ -69,18 +69,18 @@ dependencies = [
 
 [[package]]
 name = "oxideav-codec"
-version = "0.0.4"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "594f4f2bbd636179604dbf3d70612c07e8701c947a3cc42ede061d4c42fc8382"
+checksum = "ed294d634aa58ca902f3d0fdbaf9ac16d62ed292709032f41cc42da95fe1f3a7"
 dependencies = [
  "oxideav-core",
 ]
 
 [[package]]
 name = "oxideav-core"
-version = "0.0.3"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c911df9e299622ce782034f54a2872b6a153a62cc1c4c87d28a44e67a7c13b57"
+checksum = "6442d1e45380a051858f066515c83d8a3e7c72a32c9744300f2ec519eae31419"
 dependencies = [
  "thiserror",
 ]
