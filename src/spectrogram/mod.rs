@@ -197,12 +197,57 @@ impl Spectrogram {
         ss.initialized = true;
     }
 
-    /// Render a single RGB24 VideoFrame from the current rolling-window
-    /// column buffer. Keeps the last `width` columns visible; older
-    /// columns have already been trimmed.
+    /// Render a single RGB24 VideoFrame from the rolling-window column
+    /// buffer, with 1-source-column-per-output-column mapping.
+    ///
+    /// Before the buffer has filled to `width` columns, the leftmost
+    /// `width - columns.len()` pixels are left black (silent-floor
+    /// colour) and the accumulated columns are right-aligned — this
+    /// is the classic scrolling-waterfall look, not the "initial fat
+    /// bands zooming in" behaviour that `finalize_rgb` produces when
+    /// it stretches to fit.
     fn render_rolling_video_frame(&self) -> VideoFrame {
-        let data = self.finalize_rgb();
-        let stride = self.opts.width as usize * 3;
+        let w = self.opts.width as usize;
+        let h = self.opts.height as usize;
+        let mut data = vec![0u8; w * h * 3];
+        let n_cols = self.columns.len();
+        let n_freq = self.opts.fft_size / 2 + 1;
+        let ref_mag = self.opts.fft_size as f32 / 2.0;
+        let (lo, hi) = self.opts.db_range;
+
+        // Where the newest column should land. We draw column k of the
+        // buffer at output x = `w - n_cols + k`, so col 0 is at the
+        // leftmost occupied pixel and the last col is always at x=w-1.
+        let left_skip = w.saturating_sub(n_cols);
+        for col_idx in 0..n_cols {
+            let x = left_skip + col_idx;
+            let col = &self.columns[col_idx];
+            for y in 0..h {
+                let yy = h - 1 - y;
+                let f0 = (yy * n_freq) / h;
+                let f1 = (((yy + 1) * n_freq) / h).max(f0 + 1).min(n_freq);
+                let mut max_mag = 0.0f32;
+                for m in col.iter().take(f1).skip(f0) {
+                    if *m > max_mag {
+                        max_mag = *m;
+                    }
+                }
+                let db = if max_mag <= 1.0e-12 {
+                    -200.0
+                } else {
+                    20.0 * (max_mag / ref_mag).log10()
+                };
+                let t = ((db - lo) / (hi - lo)).clamp(0.0, 1.0);
+                let idx = (t * 255.0) as u8;
+                let (r, g, b) = colormap_lookup(self.opts.colormap, idx);
+                let off = (y * w + x) * 3;
+                data[off] = r;
+                data[off + 1] = g;
+                data[off + 2] = b;
+            }
+        }
+
+        let stride = w * 3;
         VideoFrame {
             format: PixelFormat::Rgb24,
             width: self.opts.width,
