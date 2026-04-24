@@ -86,6 +86,10 @@ struct StreamState {
     input_sample_rate: u32,
     input_channels: u16,
     input_format: SampleFormat,
+    /// Time-base copied from the first input audio frame. The emitted
+    /// video stream inherits this time-base so A/V sync is a direct
+    /// pts comparison downstream — no rescaling in the player.
+    input_time_base: TimeBase,
     /// Frames per second of the emitted video stream.
     video_fps: u32,
     /// `input_sample_rate / video_fps`, computed once inputs land.
@@ -94,8 +98,19 @@ struct StreamState {
     samples_elapsed: u64,
     /// Next `samples_elapsed` threshold at which a video frame is due.
     next_emit_at: u64,
-    /// Video frame counter (== pts under the 1/fps time_base).
+    /// Video frame counter. Used to know which boundary we're at;
+    /// the emitted pts is derived from this + `base_pts_in_tb` +
+    /// `pts_step_in_tb`.
     emitted_video_frames: i64,
+    /// pts of the first input audio frame, in `input_time_base` units.
+    /// Captured on the first push; used as the anchor so non-zero
+    /// starts (seek, midway join) are honoured rather than forcing
+    /// video to restart at 0.
+    base_pts_in_tb: i64,
+    /// How far to advance the video pts per emission, in
+    /// `input_time_base` units. Equals
+    /// `samples_per_video_frame * input_time_base.den / (sample_rate * input_time_base.num)`.
+    pts_step_in_tb: i64,
     /// Cached port descriptors; rebuilt after the first push lands the
     /// authoritative sample rate / channel count.
     input_ports: Vec<PortSpec>,
@@ -107,15 +122,19 @@ struct StreamState {
 
 impl StreamState {
     fn new(opts: &SpectrogramOptions) -> Self {
+        let placeholder_tb = TimeBase::new(1, 48_000_i64);
         Self {
             input_sample_rate: 48_000,
             input_channels: 2,
             input_format: SampleFormat::F32,
+            input_time_base: placeholder_tb,
             video_fps: 30,
             samples_per_video_frame: 48_000 / 30,
             samples_elapsed: 0,
             next_emit_at: 48_000 / 30,
             emitted_video_frames: 0,
+            base_pts_in_tb: 0,
+            pts_step_in_tb: (48_000 / 30) as i64,
             input_ports: vec![PortSpec::audio("audio", 48_000, 2, SampleFormat::F32)],
             output_ports: vec![
                 PortSpec::audio("audio", 48_000, 2, SampleFormat::F32),
@@ -124,7 +143,7 @@ impl StreamState {
                     opts.width,
                     opts.height,
                     PixelFormat::Rgb24,
-                    TimeBase::new(1, 30_i64),
+                    placeholder_tb,
                 ),
             ],
             initialized: false,
@@ -169,10 +188,24 @@ impl Spectrogram {
         ss.input_sample_rate = frame.sample_rate.max(1);
         ss.input_channels = frame.channels.max(1);
         ss.input_format = frame.format;
+        ss.input_time_base = frame.time_base;
         ss.samples_per_video_frame = ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
         ss.samples_elapsed = 0;
         ss.next_emit_at = ss.samples_per_video_frame as u64;
         ss.emitted_video_frames = 0;
+
+        // Anchor the video stream on the audio timeline. `base_pts_in_tb`
+        // starts at the audio frame's own pts (so non-zero starts from
+        // seek / mid-stream join land correctly); `pts_step_in_tb`
+        // converts one video-frame interval of samples into the audio
+        // time_base's tick units so A/V sync is a direct pts compare.
+        ss.base_pts_in_tb = frame.pts.unwrap_or(0);
+        ss.pts_step_in_tb = pts_step_for_tb(
+            ss.samples_per_video_frame as u64,
+            ss.input_sample_rate as u64,
+            ss.input_time_base,
+        );
+
         ss.input_ports = vec![PortSpec::audio(
             "audio",
             ss.input_sample_rate,
@@ -191,7 +224,7 @@ impl Spectrogram {
                 self.opts.width,
                 self.opts.height,
                 PixelFormat::Rgb24,
-                TimeBase::new(1, ss.video_fps as i64),
+                ss.input_time_base,
             ),
         ];
         ss.initialized = true;
@@ -248,12 +281,14 @@ impl Spectrogram {
         }
 
         let stride = w * 3;
+        let pts = self.stream.base_pts_in_tb
+            + self.stream.emitted_video_frames * self.stream.pts_step_in_tb;
         VideoFrame {
             format: PixelFormat::Rgb24,
             width: self.opts.width,
             height: self.opts.height,
-            pts: Some(self.stream.emitted_video_frames),
-            time_base: TimeBase::new(1, self.stream.video_fps as i64),
+            pts: Some(pts),
+            time_base: self.stream.input_time_base,
             planes: vec![VideoPlane { stride, data }],
         }
     }
@@ -451,6 +486,18 @@ impl StreamFilter for Spectrogram {
     }
 }
 
+/// Convert one video-frame interval (expressed in input audio samples)
+/// into the audio time-base's tick count, so the video stream can
+/// ride on the same clock as its audio source. Uses 64-bit math to
+/// avoid overflow on the intermediate product for high-rate sources.
+fn pts_step_for_tb(samples_per_frame: u64, sample_rate: u64, tb: TimeBase) -> i64 {
+    let den = tb.0.den as u128;
+    let num = (tb.0.num as u128).max(1);
+    let rate = sample_rate.max(1) as u128;
+    let step = (samples_per_frame as u128 * den) / (rate * num);
+    step.min(i64::MAX as u128) as i64
+}
+
 fn build_window(kind: Window, n: usize) -> Vec<f32> {
     let mut w = vec![0.0f32; n];
     let denom = (n - 1) as f32;
@@ -596,9 +643,11 @@ mod tests {
         assert_eq!(audio_count, 10, "each input audio frame must pass through");
         assert_eq!(video_count, 30, "30 fps × 1 s must emit 30 video frames");
 
-        // PTS on the video frames must be strictly increasing and
-        // land at consecutive integers (1/30 fps time_base).
-        let mut last_pts = -1i64;
+        // The video stream must ride on the input audio's time_base so
+        // A/V sync is a direct pts compare downstream. With
+        // sample_rate = 44_100 and fps = 30, one video-frame period is
+        // 44_100 / 30 = 1470 sample-ticks under TimeBase(1, 44_100).
+        let mut expected_pts = 0i64;
         for (p, f) in &ctx.out {
             if *p != 1 {
                 continue;
@@ -607,12 +656,15 @@ mod tests {
                 panic!("port 1 must carry video frames");
             };
             let pts = vf.pts.unwrap();
-            assert_eq!(pts, last_pts + 1, "video pts must increment by 1 per frame");
+            assert_eq!(
+                pts, expected_pts,
+                "video pts must step by 1470 sample-ticks"
+            );
             assert_eq!(vf.width, 32);
             assert_eq!(vf.height, 16);
             assert_eq!(vf.format, PixelFormat::Rgb24);
-            assert_eq!(vf.time_base, TimeBase::new(1, 30));
-            last_pts = pts;
+            assert_eq!(vf.time_base, TimeBase::new(1, 44_100));
+            expected_pts += 1_470;
         }
 
         // Ports reflect the actual input sample rate after the first push.
