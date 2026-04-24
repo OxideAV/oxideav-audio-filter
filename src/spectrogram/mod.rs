@@ -2,7 +2,8 @@
 //!
 //! Feeds [`AudioFrame`]s incrementally through a Hann/Hamming/Blackman
 //! windowed STFT, accumulates per-FFT-column magnitudes, and finally renders
-//! a `width x height` RGB image (optionally written to a PNG file).
+//! a `width x height` RGB image returned as a [`VideoFrame`] (encode it to
+//! PNG/JPEG/etc. via the normal codec pipeline).
 //!
 //! Multi-channel input is mixed down to mono. Magnitudes are converted to
 //! dBFS and clamped to `db_range`. Time downsampling uses max-pooling over
@@ -20,7 +21,7 @@
 
 use crate::fft::real_fft;
 use crate::sample_convert::decode_to_f32;
-use oxideav_core::{AudioFrame, Error, Result};
+use oxideav_core::{AudioFrame, Error, PixelFormat, Result, TimeBase, VideoFrame, VideoPlane};
 
 mod colormaps;
 
@@ -188,21 +189,20 @@ impl Spectrogram {
         w.write_all(&rgb)
     }
 
-    /// Encode the rendered spectrogram as a PNG file at `path`.
-    pub fn finalize_png(&self, path: &std::path::Path) -> Result<()> {
+    /// Render the accumulated columns into a single `PixelFormat::Rgb24`
+    /// [`VideoFrame`]. Pipe this through any image/video encoder registered
+    /// in the codec registry (PNG, JPEG, BMP, …) to write it to disk.
+    pub fn finalize_frame(&self) -> VideoFrame {
         let rgb = self.finalize_rgb();
-        let file = std::fs::File::create(path)?;
-        let w = std::io::BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, self.opts.width, self.opts.height);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder
-            .write_header()
-            .map_err(|e| Error::other(format!("png header: {}", e)))?;
-        writer
-            .write_image_data(&rgb)
-            .map_err(|e| Error::other(format!("png data: {}", e)))?;
-        Ok(())
+        let stride = self.opts.width as usize * 3;
+        VideoFrame {
+            format: PixelFormat::Rgb24,
+            width: self.opts.width,
+            height: self.opts.height,
+            pts: None,
+            time_base: TimeBase::new(1, 1),
+            planes: vec![VideoPlane { stride, data: rgb }],
+        }
     }
 
     /// Number of FFT columns accumulated so far.
@@ -275,6 +275,23 @@ mod tests {
         let s = Spectrogram::new(opts).unwrap();
         let rgb = s.finalize_rgb();
         assert_eq!(rgb.len(), 32 * 16 * 3);
+    }
+
+    #[test]
+    fn finalize_frame_shape_matches_options() {
+        let opts = SpectrogramOptions {
+            width: 32,
+            height: 16,
+            ..Default::default()
+        };
+        let s = Spectrogram::new(opts).unwrap();
+        let frame = s.finalize_frame();
+        assert_eq!(frame.format, PixelFormat::Rgb24);
+        assert_eq!(frame.width, 32);
+        assert_eq!(frame.height, 16);
+        assert_eq!(frame.planes.len(), 1);
+        assert_eq!(frame.planes[0].stride, 32 * 3);
+        assert_eq!(frame.planes[0].data.len(), 32 * 16 * 3);
     }
 
     #[test]
