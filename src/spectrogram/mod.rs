@@ -21,7 +21,10 @@
 
 use crate::fft::real_fft;
 use crate::sample_convert::decode_to_f32;
-use oxideav_core::{AudioFrame, Error, PixelFormat, Result, TimeBase, VideoFrame, VideoPlane};
+use oxideav_core::{
+    AudioFrame, Error, FilterContext, Frame, PixelFormat, PortSpec, Result, SampleFormat,
+    StreamFilter, TimeBase, VideoFrame, VideoPlane,
+};
 
 mod colormaps;
 
@@ -71,6 +74,62 @@ pub struct Spectrogram {
     pending: Vec<f32>,
     /// Each column is `fft_size / 2 + 1` magnitudes (post-window FFT mag).
     columns: Vec<Vec<f32>>,
+    /// Streaming-mode state — populated only when the filter is driven
+    /// through [`StreamFilter::push`]. Finalize-mode callers
+    /// (`feed` + `finalize_frame`) leave these at their defaults.
+    stream: StreamState,
+}
+
+/// Per-stream runtime state for the [`StreamFilter`] driver path.
+struct StreamState {
+    /// Frozen after first push; derived from the upstream audio frame.
+    input_sample_rate: u32,
+    input_channels: u16,
+    input_format: SampleFormat,
+    /// Frames per second of the emitted video stream.
+    video_fps: u32,
+    /// `input_sample_rate / video_fps`, computed once inputs land.
+    samples_per_video_frame: u32,
+    /// Cumulative mono-sample count since the first push.
+    samples_elapsed: u64,
+    /// Next `samples_elapsed` threshold at which a video frame is due.
+    next_emit_at: u64,
+    /// Video frame counter (== pts under the 1/fps time_base).
+    emitted_video_frames: i64,
+    /// Cached port descriptors; rebuilt after the first push lands the
+    /// authoritative sample rate / channel count.
+    input_ports: Vec<PortSpec>,
+    output_ports: Vec<PortSpec>,
+    /// True once we've configured the ports from the first push. Prior
+    /// pushes would have used placeholders.
+    initialized: bool,
+}
+
+impl StreamState {
+    fn new(opts: &SpectrogramOptions) -> Self {
+        Self {
+            input_sample_rate: 48_000,
+            input_channels: 2,
+            input_format: SampleFormat::F32,
+            video_fps: 30,
+            samples_per_video_frame: 48_000 / 30,
+            samples_elapsed: 0,
+            next_emit_at: 48_000 / 30,
+            emitted_video_frames: 0,
+            input_ports: vec![PortSpec::audio("audio", 48_000, 2, SampleFormat::F32)],
+            output_ports: vec![
+                PortSpec::audio("audio", 48_000, 2, SampleFormat::F32),
+                PortSpec::video(
+                    "video",
+                    opts.width,
+                    opts.height,
+                    PixelFormat::Rgb24,
+                    TimeBase::new(1, 30_i64),
+                ),
+            ],
+            initialized: false,
+        }
+    }
 }
 
 impl Spectrogram {
@@ -89,12 +148,79 @@ impl Spectrogram {
             return Err(Error::invalid("spectrogram width/height must be non-zero"));
         }
         let window = build_window(opts.window, opts.fft_size);
+        let stream = StreamState::new(&opts);
         Ok(Self {
             opts,
             window,
             pending: Vec::new(),
             columns: Vec::new(),
+            stream,
         })
+    }
+
+    /// Configure the streaming ports from the first input frame.
+    /// Called lazily on the first [`StreamFilter::push`] — placeholder
+    /// ports live in [`StreamState::default`] until then.
+    fn init_stream_ports(&mut self, frame: &AudioFrame) {
+        let ss = &mut self.stream;
+        if ss.initialized {
+            return;
+        }
+        ss.input_sample_rate = frame.sample_rate.max(1);
+        ss.input_channels = frame.channels.max(1);
+        ss.input_format = frame.format;
+        ss.samples_per_video_frame = ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
+        ss.samples_elapsed = 0;
+        ss.next_emit_at = ss.samples_per_video_frame as u64;
+        ss.emitted_video_frames = 0;
+        ss.input_ports = vec![PortSpec::audio(
+            "audio",
+            ss.input_sample_rate,
+            ss.input_channels,
+            ss.input_format,
+        )];
+        ss.output_ports = vec![
+            PortSpec::audio(
+                "audio",
+                ss.input_sample_rate,
+                ss.input_channels,
+                ss.input_format,
+            ),
+            PortSpec::video(
+                "video",
+                self.opts.width,
+                self.opts.height,
+                PixelFormat::Rgb24,
+                TimeBase::new(1, ss.video_fps as i64),
+            ),
+        ];
+        ss.initialized = true;
+    }
+
+    /// Render a single RGB24 VideoFrame from the current rolling-window
+    /// column buffer. Keeps the last `width` columns visible; older
+    /// columns have already been trimmed.
+    fn render_rolling_video_frame(&self) -> VideoFrame {
+        let data = self.finalize_rgb();
+        let stride = self.opts.width as usize * 3;
+        VideoFrame {
+            format: PixelFormat::Rgb24,
+            width: self.opts.width,
+            height: self.opts.height,
+            pts: Some(self.stream.emitted_video_frames),
+            time_base: TimeBase::new(1, self.stream.video_fps as i64),
+            planes: vec![VideoPlane { stride, data }],
+        }
+    }
+
+    /// Trim `columns` so only the most recent `width` entries remain —
+    /// older FFT frames scroll off the left edge of the display.
+    fn trim_rolling_window(&mut self) {
+        let cap = self.opts.width as usize;
+        if self.columns.len() > cap {
+            let excess = self.columns.len() - cap;
+            self.columns.drain(..excess);
+        }
     }
 
     /// Feed one audio frame. Multi-channel input is averaged to mono.
@@ -209,6 +335,75 @@ impl Spectrogram {
     pub fn columns_recorded(&self) -> usize {
         self.columns.len()
     }
+
+    /// Set the video output frame rate used when the spectrogram runs as
+    /// a [`StreamFilter`]. Defaults to 30 fps. Must be called before the
+    /// first `push`; takes effect at port initialisation time.
+    pub fn with_video_fps(mut self, fps: u32) -> Self {
+        self.stream.video_fps = fps.max(1);
+        self
+    }
+}
+
+impl StreamFilter for Spectrogram {
+    fn input_ports(&self) -> &[PortSpec] {
+        &self.stream.input_ports
+    }
+
+    fn output_ports(&self) -> &[PortSpec] {
+        &self.stream.output_ports
+    }
+
+    fn push(&mut self, ctx: &mut dyn FilterContext, port: usize, frame: &Frame) -> Result<()> {
+        if port != 0 {
+            return Err(Error::invalid(format!(
+                "spectrogram: unknown input port {port}"
+            )));
+        }
+        let Frame::Audio(audio) = frame else {
+            return Err(Error::invalid(
+                "spectrogram: input port 0 only accepts audio frames",
+            ));
+        };
+
+        self.init_stream_ports(audio);
+
+        // Count mono-equivalent samples that passed through *before*
+        // running the FFT accumulator so the video-frame cadence
+        // reflects actual wall-clock input.
+        let samples_this_frame = audio.samples as u64;
+        self.stream.samples_elapsed += samples_this_frame;
+
+        // Pass the audio through unchanged on port 0.
+        ctx.emit(0, Frame::Audio(audio.clone()))?;
+
+        // Accumulate FFT columns (shared with `feed`).
+        self.feed(audio)?;
+        self.trim_rolling_window();
+
+        // Emit zero or more video frames (zero if the frame was shorter
+        // than one video period, more if it was unusually long).
+        while self.stream.samples_elapsed >= self.stream.next_emit_at {
+            let vf = self.render_rolling_video_frame();
+            ctx.emit(1, Frame::Video(vf))?;
+            self.stream.emitted_video_frames += 1;
+            self.stream.next_emit_at = (self.stream.emitted_video_frames as u64 + 1)
+                * self.stream.samples_per_video_frame as u64;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self, ctx: &mut dyn FilterContext) -> Result<()> {
+        // At EOF, emit one final rolling-window video frame if we've
+        // ever been initialised and haven't emitted since the last
+        // cadence boundary.
+        if self.stream.initialized && !self.columns.is_empty() {
+            let vf = self.render_rolling_video_frame();
+            ctx.emit(1, Frame::Video(vf))?;
+            self.stream.emitted_video_frames += 1;
+        }
+        Ok(())
+    }
 }
 
 fn build_window(kind: Window, n: usize) -> Vec<f32> {
@@ -236,7 +431,7 @@ fn colormap_lookup(cm: Colormap, idx: u8) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::{SampleFormat, TimeBase};
+    use oxideav_core::{PortParams, SampleFormat, TimeBase};
 
     fn sine_frame(freq: f32, rate: u32, n: usize) -> AudioFrame {
         let mut bytes = Vec::with_capacity(n * 4);
@@ -292,6 +487,95 @@ mod tests {
         assert_eq!(frame.planes.len(), 1);
         assert_eq!(frame.planes[0].stride, 32 * 3);
         assert_eq!(frame.planes[0].data.len(), 32 * 16 * 3);
+    }
+
+    #[test]
+    fn stream_filter_declares_audio_plus_video_ports() {
+        let opts = SpectrogramOptions {
+            width: 64,
+            height: 32,
+            ..Default::default()
+        };
+        let s = Spectrogram::new(opts).unwrap();
+        let outs = s.output_ports();
+        assert_eq!(outs.len(), 2);
+        assert_eq!(outs[0].name, "audio");
+        assert_eq!(outs[1].name, "video");
+        assert!(matches!(
+            &outs[1].params,
+            PortParams::Video {
+                width: 64,
+                height: 32,
+                format: PixelFormat::Rgb24,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn stream_filter_emits_audio_passthrough_and_video_at_cadence() {
+        use oxideav_core::Frame;
+
+        struct Collect {
+            out: Vec<(usize, Frame)>,
+        }
+        impl FilterContext for Collect {
+            fn emit(&mut self, port: usize, frame: Frame) -> Result<()> {
+                self.out.push((port, frame));
+                Ok(())
+            }
+        }
+
+        let opts = SpectrogramOptions {
+            fft_size: 256,
+            hop_size: 64,
+            width: 32,
+            height: 16,
+            ..Default::default()
+        };
+        let mut s = Spectrogram::new(opts).unwrap().with_video_fps(30);
+        let mut ctx = Collect { out: Vec::new() };
+
+        // Feed 1 second of 44100 Hz audio in 10 × 4410-sample chunks.
+        // Expect: 10 audio frames passed through, and 30 video frames
+        // emitted on port 1 (1 sec × 30 fps).
+        for i in 0..10 {
+            let frame = sine_frame(440.0, 44_100, 4_410);
+            assert_eq!(frame.samples, 4_410);
+            s.push(&mut ctx, 0, &Frame::Audio(frame)).unwrap();
+            assert!(i < 1 || !ctx.out.is_empty());
+        }
+
+        let audio_count = ctx.out.iter().filter(|(p, _)| *p == 0).count();
+        let video_count = ctx.out.iter().filter(|(p, _)| *p == 1).count();
+        assert_eq!(audio_count, 10, "each input audio frame must pass through");
+        assert_eq!(video_count, 30, "30 fps × 1 s must emit 30 video frames");
+
+        // PTS on the video frames must be strictly increasing and
+        // land at consecutive integers (1/30 fps time_base).
+        let mut last_pts = -1i64;
+        for (p, f) in &ctx.out {
+            if *p != 1 {
+                continue;
+            }
+            let Frame::Video(vf) = f else {
+                panic!("port 1 must carry video frames");
+            };
+            let pts = vf.pts.unwrap();
+            assert_eq!(pts, last_pts + 1, "video pts must increment by 1 per frame");
+            assert_eq!(vf.width, 32);
+            assert_eq!(vf.height, 16);
+            assert_eq!(vf.format, PixelFormat::Rgb24);
+            assert_eq!(vf.time_base, TimeBase::new(1, 30));
+            last_pts = pts;
+        }
+
+        // Ports reflect the actual input sample rate after the first push.
+        let outs = s.output_ports();
+        let PortParams::Audio { sample_rate, .. } = &outs[0].params else {
+            panic!("expected audio on port 0")
+        };
+        assert_eq!(*sample_rate, 44_100);
     }
 
     #[test]
