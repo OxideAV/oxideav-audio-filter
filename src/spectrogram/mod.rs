@@ -484,6 +484,21 @@ impl StreamFilter for Spectrogram {
         }
         Ok(())
     }
+
+    fn reset(&mut self) -> Result<()> {
+        // Drop the rolling FFT-column buffer + any in-progress block of
+        // pending audio samples; reset cadence + base-pts so the next
+        // input frame after the seek anchors a fresh video timeline. The
+        // port descriptors we already published stay valid (sample
+        // rate / channels / format don't change across a seek), so we
+        // keep `initialized=false` to force re-anchoring from the next
+        // frame's pts.
+        self.pending.clear();
+        self.columns.clear();
+        let opts = self.opts.clone();
+        self.stream = StreamState::new(&opts);
+        Ok(())
+    }
 }
 
 /// Convert one video-frame interval (expressed in input audio samples)
