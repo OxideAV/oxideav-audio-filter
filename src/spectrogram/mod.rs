@@ -22,8 +22,8 @@
 use crate::fft::real_fft;
 use crate::sample_convert::decode_to_f32;
 use oxideav_core::{
-    AudioFrame, Error, FilterContext, Frame, PixelFormat, PortSpec, Result, SampleFormat,
-    StreamFilter, TimeBase, VideoFrame, VideoPlane,
+    AudioFrame, Error, FilterContext, Frame, PixelFormat, PortParams, PortSpec, Result,
+    SampleFormat, StreamFilter, TimeBase, VideoFrame, VideoPlane,
 };
 
 mod colormaps;
@@ -421,6 +421,63 @@ impl Spectrogram {
     /// first `push`; takes effect at port initialisation time.
     pub fn with_video_fps(mut self, fps: u32) -> Self {
         self.stream.video_fps = fps.max(1);
+        self
+    }
+
+    /// Pre-seed the audio input params so `input_ports()` /
+    /// `output_ports()` return the correct `time_base` / sample_rate /
+    /// channels / format BEFORE the first `push`. The pipeline reads
+    /// these to synthesise `StreamInfo` for the sink's `start()` call,
+    /// so getting them right up front prevents the engine from
+    /// interpreting the video pts under a wrong time_base (which would
+    /// break A/V sync with a large drift).
+    pub fn with_audio_input(mut self, input: &PortSpec) -> Self {
+        if let PortParams::Audio {
+            sample_rate,
+            channels,
+            format,
+        } = input.params
+        {
+            let ss = &mut self.stream;
+            ss.input_sample_rate = sample_rate.max(1);
+            ss.input_channels = channels.max(1);
+            ss.input_format = format;
+            // input_time_base is not carried on PortParams::Audio yet;
+            // assume the common `(1, sample_rate)` convention used by
+            // the executor's synthesised stream infos and every raw
+            // PCM decoder. push() overrides on first audio frame with
+            // the actual AudioFrame.time_base value if it differs.
+            ss.input_time_base = TimeBase::new(1, ss.input_sample_rate as i64);
+            ss.samples_per_video_frame =
+                ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
+            ss.next_emit_at = ss.samples_per_video_frame as u64;
+            ss.pts_step_in_tb = pts_step_for_tb(
+                ss.samples_per_video_frame as u64,
+                ss.input_sample_rate as u64,
+                ss.input_time_base,
+            );
+            ss.input_ports = vec![PortSpec::audio(
+                "audio",
+                ss.input_sample_rate,
+                ss.input_channels,
+                ss.input_format,
+            )];
+            ss.output_ports = vec![
+                PortSpec::audio(
+                    "audio",
+                    ss.input_sample_rate,
+                    ss.input_channels,
+                    ss.input_format,
+                ),
+                PortSpec::video(
+                    "video",
+                    self.opts.width,
+                    self.opts.height,
+                    PixelFormat::Rgb24,
+                    ss.input_time_base,
+                ),
+            ];
+        }
         self
     }
 }
