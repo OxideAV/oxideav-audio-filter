@@ -32,6 +32,7 @@
 pub mod echo;
 pub mod fft;
 pub mod noise_gate;
+pub mod registry;
 pub mod resample;
 pub mod sample_convert;
 pub mod spectrogram;
@@ -39,6 +40,7 @@ pub mod volume;
 
 pub use echo::Echo;
 pub use noise_gate::NoiseGate;
+pub use registry::register;
 pub use resample::Resample;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use volume::Volume;
