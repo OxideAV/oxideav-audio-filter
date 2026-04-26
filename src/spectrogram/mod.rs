@@ -429,10 +429,7 @@ impl Spectrogram {
     /// the first push; that pre-slim path is gone now.
     pub fn with_codec_parameters(mut self, params: &CodecParameters) -> Self {
         let format = params.sample_format.unwrap_or(SampleFormat::F32);
-        let channels = params
-            .resolved_channels()
-            .filter(|c| *c > 0)
-            .unwrap_or(2);
+        let channels = params.resolved_channels().filter(|c| *c > 0).unwrap_or(2);
         let sample_rate = params.sample_rate.filter(|r| *r > 0).unwrap_or(48_000);
         self.seed_input(format, channels, sample_rate);
         self
@@ -449,8 +446,7 @@ impl Spectrogram {
         // (The slimmed AudioFrame no longer carries a per-frame
         // override path.)
         ss.input_time_base = TimeBase::new(1, ss.input_sample_rate as i64);
-        ss.samples_per_video_frame =
-            ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
+        ss.samples_per_video_frame = ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
         ss.next_emit_at = ss.samples_per_video_frame as u64;
         ss.pts_step_in_tb = pts_step_for_tb(
             ss.samples_per_video_frame as u64,

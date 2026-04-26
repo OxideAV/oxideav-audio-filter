@@ -174,12 +174,7 @@ impl DownmixFilter {
     /// is preserved 1:1. `format` and `channels` describe the upstream
     /// stream's `CodecParameters` — the layout's channel count is
     /// asserted to match `channels` here.
-    fn apply(
-        &self,
-        input: &AudioFrame,
-        format: SampleFormat,
-        channels: u16,
-    ) -> Result<AudioFrame> {
+    fn apply(&self, input: &AudioFrame, format: SampleFormat, channels: u16) -> Result<AudioFrame> {
         let src_ch = self.src.channel_count() as usize;
         if channels as usize != src_ch {
             return Err(Error::invalid(format!(

@@ -37,6 +37,9 @@ const KAISER_BETA: f32 = 8.0;
 /// Polyphase windowed-sinc resampler.
 pub struct Resample {
     src_rate: u32,
+    /// Retained for diagnostics / future-proofing — the resampler operates
+    /// on the precomputed `up`/`down` ratio, not on the raw output rate.
+    #[allow(dead_code)]
     dst_rate: u32,
     /// `up` (== L / src_rate) — number of phases.
     up: u32,

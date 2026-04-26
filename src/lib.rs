@@ -78,11 +78,8 @@ pub struct AudioStreamParams {
 /// returns an empty `Vec` for filters that do not buffer.
 pub trait AudioFilter: Send {
     /// Process one input frame, returning zero or more output frames.
-    fn process(
-        &mut self,
-        input: &AudioFrame,
-        params: AudioStreamParams,
-    ) -> Result<Vec<AudioFrame>>;
+    fn process(&mut self, input: &AudioFrame, params: AudioStreamParams)
+        -> Result<Vec<AudioFrame>>;
 
     /// Drain any internally buffered samples at end-of-stream. `params`
     /// describes the same stream-level shape passed to

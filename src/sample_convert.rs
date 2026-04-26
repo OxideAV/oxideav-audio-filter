@@ -191,6 +191,10 @@ fn read_sample(fmt: SampleFormat, bytes: &[u8]) -> f32 {
         SampleFormat::F64 | SampleFormat::F64P => f64::from_le_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]) as f32,
+        // SampleFormat is `#[non_exhaustive]` (oxideav-core); future variants
+        // need their own arm. Decode silence rather than panic so an unknown
+        // input format degrades gracefully instead of crashing the pipeline.
+        _ => 0.0,
     }
 }
 
@@ -237,6 +241,10 @@ fn write_sample(fmt: SampleFormat, value: f32, out: &mut [u8]) {
             let bytes = (value as f64).to_le_bytes();
             out[..8].copy_from_slice(&bytes);
         }
+        // SampleFormat is `#[non_exhaustive]` (oxideav-core); future variants
+        // need their own arm. No-op rather than panic so an unknown output
+        // format degrades gracefully instead of crashing the pipeline.
+        _ => {}
     }
 }
 
