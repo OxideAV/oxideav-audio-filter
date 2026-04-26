@@ -28,7 +28,7 @@
 //! * Channel count is preserved.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Error, Result};
 
 const TAPS_PER_PHASE: usize = 32;
@@ -236,13 +236,17 @@ impl Resample {
 }
 
 impl AudioFilter for Resample {
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>> {
-        if input.sample_rate != self.src_rate {
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        if params.sample_rate != self.src_rate {
             return Err(Error::invalid(
-                "Resample: input frame sample_rate does not match constructor",
+                "Resample: input stream sample_rate does not match constructor",
             ));
         }
-        let channels = decode_to_f32(input)?;
+        let channels = decode_to_f32(input, params.format, params.channels)?;
         let n_chan = channels.len();
         self.ensure_state(n_chan);
 
@@ -281,14 +285,14 @@ impl AudioFilter for Resample {
             return Ok(Vec::new());
         }
 
-        let mut out_template = input.clone();
-        out_template.sample_rate = self.dst_rate;
-        out_template.time_base = oxideav_core::TimeBase::new(1, self.dst_rate as i64);
-        let frame = encode_from_f32(&out_template, &out_per_channel)?;
+        // Output frame inherits format + channels from the input stream
+        // (resample preserves both); only the sample rate changes, and
+        // that lives on the downstream port spec, not the frame.
+        let frame = encode_from_f32(params.format, params.channels, input, &out_per_channel)?;
         Ok(vec![frame])
     }
 
-    fn flush(&mut self) -> Result<Vec<AudioFrame>> {
+    fn flush(&mut self, params: AudioStreamParams) -> Result<Vec<AudioFrame>> {
         let n_chan = match &self.state {
             Some(s) => s.channels,
             None => return Ok(Vec::new()),
@@ -296,12 +300,8 @@ impl AudioFilter for Resample {
         // Push half a tap window of zeros to flush the tail.
         let pad = TAPS_PER_PHASE / 2;
         let template = AudioFrame {
-            format: oxideav_core::SampleFormat::F32,
-            channels: n_chan as u16,
-            sample_rate: self.src_rate,
             samples: 0,
             pts: None,
-            time_base: oxideav_core::TimeBase::new(1, self.src_rate as i64),
             data: vec![Vec::new()],
         };
 
@@ -340,10 +340,7 @@ impl AudioFilter for Resample {
             return Ok(Vec::new());
         }
 
-        let mut out_template = template;
-        out_template.sample_rate = self.dst_rate;
-        out_template.time_base = oxideav_core::TimeBase::new(1, self.dst_rate as i64);
-        let frame = encode_from_f32(&out_template, &out_per_channel)?;
+        let frame = encode_from_f32(params.format, params.channels, &template, &out_per_channel)?;
         Ok(vec![frame])
     }
 }
@@ -351,7 +348,15 @@ impl AudioFilter for Resample {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::{SampleFormat, TimeBase};
+    use oxideav_core::SampleFormat;
+
+    fn f32_mono(rate: u32) -> AudioStreamParams {
+        AudioStreamParams {
+            format: SampleFormat::F32,
+            channels: 1,
+            sample_rate: rate,
+        }
+    }
 
     fn sine_f32(freq: f32, rate: u32, n: usize) -> AudioFrame {
         let mut bytes = Vec::with_capacity(n * 4);
@@ -361,12 +366,8 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
         AudioFrame {
-            format: SampleFormat::F32,
-            channels: 1,
-            sample_rate: rate,
             samples: n as u32,
             pts: None,
-            time_base: TimeBase::new(1, rate as i64),
             data: vec![bytes],
         }
     }
@@ -392,16 +393,16 @@ mod tests {
         let original_frame = sine_f32(freq as f32, 48_000, n);
 
         let mut down = Resample::new(48_000, 44_100).unwrap();
-        let mut mid_frames = down.process(&original_frame).unwrap();
-        mid_frames.extend(down.flush().unwrap());
+        let mut mid_frames = down.process(&original_frame, f32_mono(48_000)).unwrap();
+        mid_frames.extend(down.flush(f32_mono(44_100)).unwrap());
 
         let mut up = Resample::new(44_100, 48_000).unwrap();
         let mut out_frames: Vec<AudioFrame> = Vec::new();
         for f in &mid_frames {
-            let outs = up.process(f).unwrap();
+            let outs = up.process(f, f32_mono(44_100)).unwrap();
             out_frames.extend(outs);
         }
-        out_frames.extend(up.flush().unwrap());
+        out_frames.extend(up.flush(f32_mono(48_000)).unwrap());
 
         let mut result: Vec<f32> = Vec::new();
         for f in &out_frames {
@@ -472,15 +473,16 @@ mod tests {
         let n = 9_600;
         let frame = sine_f32(440.0, 48_000, n);
         let mut r = Resample::new(48_000, 24_000).unwrap();
-        let outs = r.process(&frame).unwrap();
+        let outs = r.process(&frame, f32_mono(48_000)).unwrap();
         let total: usize = outs.iter().map(|f| f.samples as usize).sum();
         assert!(
             (total as i32 - 4_800).abs() < 64,
             "expected ~4800 samples, got {}",
             total
         );
-        for f in &outs {
-            assert_eq!(f.sample_rate, 24_000);
-        }
+        // Output sample rate is the resampler's `dst_rate` and lives on
+        // the downstream port spec (the registry builds an output
+        // PortSpec at `dst_rate`); the AudioFrame itself no longer
+        // carries it.
     }
 }

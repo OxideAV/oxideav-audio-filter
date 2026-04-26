@@ -22,7 +22,7 @@
 //!   the release ramp begins.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Result};
 
 #[derive(Debug, Clone)]
@@ -81,9 +81,13 @@ impl NoiseGate {
 }
 
 impl AudioFilter for NoiseGate {
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>> {
-        self.ensure_state(input.sample_rate);
-        let mut channels = decode_to_f32(input)?;
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        self.ensure_state(params.sample_rate);
+        let mut channels = decode_to_f32(input, params.format, params.channels)?;
         let n_samples = channels.first().map(|c| c.len()).unwrap_or(0);
         let n_chan = channels.len();
         let state = self.state.as_mut().expect("ensure_state succeeded");
@@ -112,7 +116,7 @@ impl AudioFilter for NoiseGate {
             }
         }
 
-        let out = encode_from_f32(input, &channels)?;
+        let out = encode_from_f32(params.format, params.channels, input, &channels)?;
         Ok(vec![out])
     }
 }
@@ -120,7 +124,13 @@ impl AudioFilter for NoiseGate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::{SampleFormat, TimeBase};
+    use oxideav_core::SampleFormat;
+
+    const F32_MONO: AudioStreamParams = AudioStreamParams {
+        format: SampleFormat::F32,
+        channels: 1,
+        sample_rate: 48_000,
+    };
 
     fn make_f32_mono(samples: &[f32]) -> AudioFrame {
         let mut bytes = Vec::with_capacity(samples.len() * 4);
@@ -128,12 +138,8 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
         AudioFrame {
-            format: SampleFormat::F32,
-            channels: 1,
-            sample_rate: 48_000,
             samples: samples.len() as u32,
             pts: None,
-            time_base: TimeBase::new(1, 48_000),
             data: vec![bytes],
         }
     }
@@ -151,7 +157,7 @@ mod tests {
         let samples = vec![0.0001f32; 48_000];
         let frame = make_f32_mono(&samples);
         let mut g = NoiseGate::new(-40.0, 1.0, 1.0, 0.0);
-        let out = g.process(&frame).unwrap();
+        let out = g.process(&frame, F32_MONO).unwrap();
         let got = read_f32(&out[0]);
         // After many samples gain should have collapsed to 0
         let last = *got.last().unwrap();
@@ -167,7 +173,7 @@ mod tests {
         }
         let frame = make_f32_mono(&samples);
         let mut g = NoiseGate::new(-40.0, 1.0, 50.0, 5.0);
-        let out = g.process(&frame).unwrap();
+        let out = g.process(&frame, F32_MONO).unwrap();
         let got = read_f32(&out[0]);
         // After attack ramp the loud tone should reach near full amplitude
         let tail = &got[got.len() - 100..];

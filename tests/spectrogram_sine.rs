@@ -2,7 +2,7 @@
 //! the expected frequency bin in the rendered spectrogram.
 
 use oxideav_audio_filter::{Colormap, Spectrogram, SpectrogramOptions, Window};
-use oxideav_core::{AudioFrame, SampleFormat, TimeBase};
+use oxideav_core::{AudioFrame, CodecId, CodecParameters, SampleFormat};
 
 fn sine_frame(freq: f32, rate: u32, n: usize) -> AudioFrame {
     let mut bytes = Vec::with_capacity(n * 4);
@@ -12,12 +12,8 @@ fn sine_frame(freq: f32, rate: u32, n: usize) -> AudioFrame {
         bytes.extend_from_slice(&s.to_le_bytes());
     }
     AudioFrame {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: rate,
         samples: n as u32,
         pts: None,
-        time_base: TimeBase::new(1, rate as i64),
         data: vec![bytes],
     }
 }
@@ -33,7 +29,14 @@ fn bright_band_at_440_hz() {
         colormap: Colormap::Grayscale,
         window: Window::Hann,
     };
-    let mut s = Spectrogram::new(opts.clone()).unwrap();
+    // Stream-level shape (F32 mono 8 kHz) used to come off the
+    // AudioFrame; with the slim it's seeded up front.
+    let mut params = CodecParameters::audio(CodecId::new("pcm_f32le")).channels(1);
+    params.sample_rate = Some(8_000);
+    params.sample_format = Some(SampleFormat::F32);
+    let mut s = Spectrogram::new(opts.clone())
+        .unwrap()
+        .with_codec_parameters(&params);
     // 1 s at 8 kHz
     let frame = sine_frame(440.0, 8_000, 8_000);
     s.feed(&frame).unwrap();

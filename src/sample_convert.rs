@@ -8,6 +8,12 @@
 //! the outer `Vec` has one entry per channel, the inner `Vec` holds samples
 //! for that channel in time order. [`encode_from_f32`] consumes the same
 //! layout.
+//!
+//! Stream-level properties (sample format, channel count) are NOT carried
+//! per-frame any more — see [`AudioFrame`] doc-comments. Both helpers take
+//! `format` and `channels` explicitly; the [`AudioFilter`](crate::AudioFilter)
+//! trait threads them through `process()` so adapter call-sites can fish
+//! them out of the input port's `PortSpec` once at construction.
 
 use oxideav_core::{AudioFrame, Error, Result, SampleFormat};
 
@@ -16,11 +22,17 @@ const S24_MAX: i32 = 0x7F_FFFF;
 
 /// Decode an [`AudioFrame`] into per-channel `f32` sample buffers.
 ///
-/// The returned `Vec` has `frame.channels` entries; each contains
-/// `frame.samples` samples in `[-1.0, 1.0]` (approximately, integer formats
-/// are normalised by their full-scale value).
-pub fn decode_to_f32(frame: &AudioFrame) -> Result<Vec<Vec<f32>>> {
-    let channels = frame.channels as usize;
+/// `format` and `channels` come from the stream's
+/// [`CodecParameters`](oxideav_core::CodecParameters), not the frame.
+/// The returned `Vec` has `channels` entries; each contains
+/// `frame.samples` samples in `[-1.0, 1.0]` (approximately, integer
+/// formats are normalised by their full-scale value).
+pub fn decode_to_f32(
+    frame: &AudioFrame,
+    format: SampleFormat,
+    channels: u16,
+) -> Result<Vec<Vec<f32>>> {
+    let channels = channels as usize;
     let samples = frame.samples as usize;
     if channels == 0 {
         return Err(Error::invalid("audio frame with zero channels"));
@@ -28,31 +40,37 @@ pub fn decode_to_f32(frame: &AudioFrame) -> Result<Vec<Vec<f32>>> {
 
     let mut out: Vec<Vec<f32>> = (0..channels).map(|_| Vec::with_capacity(samples)).collect();
 
-    if frame.format.is_planar() {
+    if format.is_planar() {
         if frame.data.len() != channels {
             return Err(Error::invalid("planar frame plane count mismatch"));
         }
         for (ch, plane) in frame.data.iter().enumerate().take(channels) {
-            decode_plane_to(frame.format, plane, samples, &mut out[ch])?;
+            decode_plane_to(format, plane, samples, &mut out[ch])?;
         }
     } else {
         let plane = frame
             .data
             .first()
             .ok_or_else(|| Error::invalid("interleaved frame missing data plane"))?;
-        decode_interleaved(frame.format, plane, channels, samples, &mut out)?;
+        decode_interleaved(format, plane, channels, samples, &mut out)?;
     }
 
     Ok(out)
 }
 
 /// Encode per-channel `f32` sample buffers into an [`AudioFrame`] using
-/// `template`'s format, channel count, and sample rate. The PTS and time
-/// base are copied from `template`. The new frame's `samples` field is set
-/// from the channel buffer length.
-pub fn encode_from_f32(template: &AudioFrame, channels_data: &[Vec<f32>]) -> Result<AudioFrame> {
-    let channels = template.channels as usize;
-    if channels_data.len() != channels {
+/// the supplied stream-level `format` and `channels`. `pts` is copied
+/// from `pts_source` (typically the input frame whose samples drove
+/// this encode). The new frame's `samples` field is set from the
+/// channel buffer length.
+pub fn encode_from_f32(
+    format: SampleFormat,
+    channels: u16,
+    pts_source: &AudioFrame,
+    channels_data: &[Vec<f32>],
+) -> Result<AudioFrame> {
+    let channels_usize = channels as usize;
+    if channels_data.len() != channels_usize {
         return Err(Error::invalid("encode_from_f32: channel count mismatch"));
     }
     let samples = channels_data.first().map(|c| c.len()).unwrap_or(0);
@@ -64,30 +82,26 @@ pub fn encode_from_f32(template: &AudioFrame, channels_data: &[Vec<f32>]) -> Res
         }
     }
 
-    let bps = template.format.bytes_per_sample();
-    let data: Vec<Vec<u8>> = if template.format.is_planar() {
+    let bps = format.bytes_per_sample();
+    let data: Vec<Vec<u8>> = if format.is_planar() {
         channels_data
             .iter()
-            .map(|ch| encode_plane(template.format, ch))
+            .map(|ch| encode_plane(format, ch))
             .collect()
     } else {
-        let mut buf = vec![0u8; samples * channels * bps];
+        let mut buf = vec![0u8; samples * channels_usize * bps];
         for s in 0..samples {
             for (c, ch_buf) in channels_data.iter().enumerate() {
-                let off = (s * channels + c) * bps;
-                write_sample(template.format, ch_buf[s], &mut buf[off..off + bps]);
+                let off = (s * channels_usize + c) * bps;
+                write_sample(format, ch_buf[s], &mut buf[off..off + bps]);
             }
         }
         vec![buf]
     };
 
     Ok(AudioFrame {
-        format: template.format,
-        channels: template.channels,
-        sample_rate: template.sample_rate,
         samples: samples as u32,
-        pts: template.pts,
-        time_base: template.time_base,
+        pts: pts_source.pts,
         data,
     })
 }
@@ -229,21 +243,11 @@ fn write_sample(fmt: SampleFormat, value: f32, out: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::TimeBase;
 
-    fn make_frame(
-        fmt: SampleFormat,
-        channels: u16,
-        planes: Vec<Vec<u8>>,
-        samples: u32,
-    ) -> AudioFrame {
+    fn make_frame(planes: Vec<Vec<u8>>, samples: u32) -> AudioFrame {
         AudioFrame {
-            format: fmt,
-            channels,
-            sample_rate: 48_000,
             samples,
             pts: None,
-            time_base: TimeBase::new(1, 48_000),
             data: planes,
         }
     }
@@ -256,13 +260,13 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
             bytes.extend_from_slice(&s.to_le_bytes());
         }
-        let frame = make_frame(SampleFormat::S16, 2, vec![bytes], samples.len() as u32);
-        let decoded = decode_to_f32(&frame).unwrap();
+        let frame = make_frame(vec![bytes], samples.len() as u32);
+        let decoded = decode_to_f32(&frame, SampleFormat::S16, 2).unwrap();
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded[0].len(), samples.len());
-        let re = encode_from_f32(&frame, &decoded).unwrap();
+        let re = encode_from_f32(SampleFormat::S16, 2, &frame, &decoded).unwrap();
         // Re-decode and compare
-        let again = decode_to_f32(&re).unwrap();
+        let again = decode_to_f32(&re, SampleFormat::S16, 2).unwrap();
         for ch in 0..2 {
             for i in 0..samples.len() {
                 assert!((again[ch][i] - decoded[ch][i]).abs() < 1.0e-4);
@@ -278,9 +282,9 @@ mod tests {
             left.extend_from_slice(&((i as f32 / 32.0).to_le_bytes()));
             right.extend_from_slice(&((-(i as f32) / 32.0).to_le_bytes()));
         }
-        let frame = make_frame(SampleFormat::F32P, 2, vec![left, right], 16);
-        let decoded = decode_to_f32(&frame).unwrap();
-        let re = encode_from_f32(&frame, &decoded).unwrap();
+        let frame = make_frame(vec![left, right], 16);
+        let decoded = decode_to_f32(&frame, SampleFormat::F32P, 2).unwrap();
+        let re = encode_from_f32(SampleFormat::F32P, 2, &frame, &decoded).unwrap();
         assert_eq!(re.data.len(), 2);
         assert_eq!(re.data[0].len(), 16 * 4);
     }
@@ -295,10 +299,10 @@ mod tests {
             bytes.push(((v >> 8) & 0xFF) as u8);
             bytes.push(((v >> 16) & 0xFF) as u8);
         }
-        let frame = make_frame(SampleFormat::S24, 1, vec![bytes], raw.len() as u32);
-        let decoded = decode_to_f32(&frame).unwrap();
-        let re = encode_from_f32(&frame, &decoded).unwrap();
-        let again = decode_to_f32(&re).unwrap();
+        let frame = make_frame(vec![bytes], raw.len() as u32);
+        let decoded = decode_to_f32(&frame, SampleFormat::S24, 1).unwrap();
+        let re = encode_from_f32(SampleFormat::S24, 1, &frame, &decoded).unwrap();
+        let again = decode_to_f32(&re, SampleFormat::S24, 1).unwrap();
         for i in 0..raw.len() {
             assert!((decoded[0][i] - again[0][i]).abs() < 1.0e-6);
         }

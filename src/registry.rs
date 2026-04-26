@@ -13,7 +13,7 @@ use oxideav_core::{
 use serde_json::Value;
 use std::str::FromStr;
 
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 
 /// Install Volume, NoiseGate, Echo, Resample, and Spectrogram into the
 /// runtime context's filter registry. Idempotent — last write wins
@@ -31,19 +31,43 @@ pub fn register(ctx: &mut RuntimeContext) {
 
 /// Wraps a legacy [`AudioFilter`] in the [`StreamFilter`] contract.
 /// Single audio port in, single audio port out; both inherit params
-/// from the upstream input port.
+/// from the upstream input port. The stream-level audio shape
+/// ([`AudioStreamParams`]) is cached once at construction off the
+/// input port and threaded into every `process()` / `flush()` call —
+/// the trait used to read these off the frame, but they live on the
+/// stream's `CodecParameters` now.
 struct AudioFilterAdapter {
     inner: Box<dyn AudioFilter>,
     inp: [PortSpec; 1],
     outp: [PortSpec; 1],
+    params: AudioStreamParams,
 }
 
 impl AudioFilterAdapter {
     fn new(inner: Box<dyn AudioFilter>, in_port: PortSpec, out_port: PortSpec) -> Self {
+        let params = match &in_port.params {
+            PortParams::Audio {
+                format,
+                channels,
+                sample_rate,
+            } => AudioStreamParams {
+                format: *format,
+                channels: *channels,
+                sample_rate: *sample_rate,
+            },
+            // Non-audio input ports shouldn't reach this adapter, but pick
+            // a defensible default so we don't panic on misuse.
+            _ => AudioStreamParams {
+                format: SampleFormat::F32,
+                channels: 2,
+                sample_rate: 48_000,
+            },
+        };
         Self {
             inner,
             inp: [in_port],
             outp: [out_port],
+            params,
         }
     }
 }
@@ -66,14 +90,14 @@ impl StreamFilter for AudioFilterAdapter {
                 "audio-filter adapter: input port 0 only accepts audio frames",
             ));
         };
-        let outs = self.inner.process(a)?;
+        let outs = self.inner.process(a, self.params)?;
         for o in outs {
             ctx.emit(0, Frame::Audio(o))?;
         }
         Ok(())
     }
     fn flush(&mut self, ctx: &mut dyn FilterContext) -> Result<()> {
-        let outs = self.inner.flush()?;
+        let outs = self.inner.flush(self.params)?;
         for o in outs {
             ctx.emit(0, Frame::Audio(o))?;
         }

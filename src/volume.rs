@@ -6,7 +6,7 @@
 //! settings.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Result};
 
 /// Per-sample multiplicative gain.
@@ -44,14 +44,18 @@ impl Volume {
 }
 
 impl AudioFilter for Volume {
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>> {
-        let mut channels = decode_to_f32(input)?;
-        for ch in channels.iter_mut() {
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        let mut decoded = decode_to_f32(input, params.format, params.channels)?;
+        for ch in decoded.iter_mut() {
             for s in ch.iter_mut() {
                 *s = (*s * self.gain).clamp(-1.0, 1.0);
             }
         }
-        let out = encode_from_f32(input, &channels)?;
+        let out = encode_from_f32(params.format, params.channels, input, &decoded)?;
         Ok(vec![out])
     }
 }
@@ -59,7 +63,6 @@ impl AudioFilter for Volume {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::{SampleFormat, TimeBase};
 
     fn s16_mono(samples: &[i16]) -> AudioFrame {
         let mut data = Vec::with_capacity(samples.len() * 2);
@@ -67,12 +70,8 @@ mod tests {
             data.extend_from_slice(&s.to_le_bytes());
         }
         AudioFrame {
-            format: SampleFormat::S16,
-            channels: 1,
-            sample_rate: 48_000,
             samples: samples.len() as u32,
             pts: None,
-            time_base: TimeBase::new(1, 48_000),
             data: vec![data],
         }
     }
@@ -88,7 +87,16 @@ mod tests {
     fn unity_gain_is_identity() {
         let frame = s16_mono(&[0, 100, -100, 16384, -16384]);
         let mut v = Volume::new(1.0);
-        let out = v.process(&frame).unwrap();
+        let out = v
+            .process(
+                &frame,
+                AudioStreamParams {
+                    format: oxideav_core::SampleFormat::S16,
+                    channels: 1,
+                    sample_rate: 48_000,
+                },
+            )
+            .unwrap();
         assert_eq!(out.len(), 1);
         let got = read_s16(&out[0]);
         for (a, b) in got.iter().zip([0i16, 100, -100, 16384, -16384].iter()) {
@@ -100,7 +108,16 @@ mod tests {
     fn from_db_doubles_at_6db() {
         let frame = s16_mono(&[1000, -1000, 5000]);
         let mut v = Volume::from_db(6.0);
-        let out = v.process(&frame).unwrap();
+        let out = v
+            .process(
+                &frame,
+                AudioStreamParams {
+                    format: oxideav_core::SampleFormat::S16,
+                    channels: 1,
+                    sample_rate: 48_000,
+                },
+            )
+            .unwrap();
         let got = read_s16(&out[0]);
         // 6.0 dB linear ≈ 1.9953x; allow a 1 % tolerance.
         assert!((got[0] as f32 - 1000.0 * 1.9953).abs() < 50.0);
@@ -112,7 +129,16 @@ mod tests {
     fn clipping_caps_at_full_scale() {
         let frame = s16_mono(&[20000, -20000]);
         let mut v = Volume::new(4.0);
-        let out = v.process(&frame).unwrap();
+        let out = v
+            .process(
+                &frame,
+                AudioStreamParams {
+                    format: oxideav_core::SampleFormat::S16,
+                    channels: 1,
+                    sample_rate: 48_000,
+                },
+            )
+            .unwrap();
         let got = read_s16(&out[0]);
         // Conversion path: i16 -> f32 (/32768) -> mult -> clamp(-1, 1) ->
         // back to i16 via *32767. A clamped sample becomes ±32767.

@@ -16,7 +16,7 @@
 //!   fully wet.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Result};
 
 #[derive(Debug, Clone)]
@@ -65,10 +65,14 @@ impl Echo {
 }
 
 impl AudioFilter for Echo {
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>> {
-        let n_chan = input.channels as usize;
-        self.ensure_state(input.sample_rate, n_chan);
-        let mut channels = decode_to_f32(input)?;
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        let n_chan = params.channels as usize;
+        self.ensure_state(params.sample_rate, n_chan);
+        let mut channels = decode_to_f32(input, params.format, params.channels)?;
         let n_samples = channels.first().map(|c| c.len()).unwrap_or(0);
         let dry_mix = 1.0 - self.mix;
 
@@ -92,7 +96,7 @@ impl AudioFilter for Echo {
             state.write_idx[ch] = idx;
         }
 
-        let out = encode_from_f32(input, &channels)?;
+        let out = encode_from_f32(params.format, params.channels, input, &channels)?;
         Ok(vec![out])
     }
 }
@@ -100,9 +104,17 @@ impl AudioFilter for Echo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::{SampleFormat, TimeBase};
+    use oxideav_core::SampleFormat;
 
-    fn impulse_f32(n: usize, rate: u32) -> AudioFrame {
+    fn f32_mono(rate: u32) -> AudioStreamParams {
+        AudioStreamParams {
+            format: SampleFormat::F32,
+            channels: 1,
+            sample_rate: rate,
+        }
+    }
+
+    fn impulse_f32(n: usize, _rate: u32) -> AudioFrame {
         let mut samples = vec![0.0f32; n];
         samples[0] = 1.0;
         let mut bytes = Vec::with_capacity(n * 4);
@@ -110,12 +122,8 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
         AudioFrame {
-            format: SampleFormat::F32,
-            channels: 1,
-            sample_rate: rate,
             samples: n as u32,
             pts: None,
-            time_base: TimeBase::new(1, rate as i64),
             data: vec![bytes],
         }
     }
@@ -132,7 +140,7 @@ mod tests {
         // 10 ms delay at 48 kHz = 480 samples
         let mut e = Echo::new(10.0, 0.0, 0.5);
         let frame = impulse_f32(2000, 48_000);
-        let out = e.process(&frame).unwrap();
+        let out = e.process(&frame, f32_mono(48_000)).unwrap();
         let got = read_f32(&out[0]);
         // dry sample at index 0 is multiplied by (1 - 0.5) = 0.5
         assert!((got[0] - 0.5).abs() < 1.0e-5);
@@ -146,7 +154,7 @@ mod tests {
     fn feedback_creates_repeating_echoes() {
         let mut e = Echo::new(10.0, 0.5, 1.0); // wet only, feedback=0.5
         let frame = impulse_f32(4000, 48_000);
-        let out = e.process(&frame).unwrap();
+        let out = e.process(&frame, f32_mono(48_000)).unwrap();
         let got = read_f32(&out[0]);
         // dry suppressed (mix=1 means out = delayed), so got[0] = 0
         assert!(got[0].abs() < 1.0e-6);

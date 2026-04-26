@@ -49,7 +49,22 @@ pub use resample::Resample;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use volume::Volume;
 
-use oxideav_core::{AudioFrame, Result};
+use oxideav_core::{AudioFrame, Result, SampleFormat};
+
+/// Stream-level parameters threaded into every [`AudioFilter`] call.
+///
+/// Used to live on every `AudioFrame` (`format` / `channels` /
+/// `sample_rate`); the slim moved them to the stream's
+/// [`CodecParameters`](oxideav_core::CodecParameters). The
+/// [`AudioFilterAdapter`](crate::registry) shim reads them once from
+/// the input port spec at construction and re-supplies them per call so
+/// concrete filters don't have to negotiate per-frame.
+#[derive(Clone, Copy, Debug)]
+pub struct AudioStreamParams {
+    pub format: SampleFormat,
+    pub channels: u16,
+    pub sample_rate: u32,
+}
 
 /// Streaming audio filter.
 ///
@@ -63,10 +78,16 @@ use oxideav_core::{AudioFrame, Result};
 /// returns an empty `Vec` for filters that do not buffer.
 pub trait AudioFilter: Send {
     /// Process one input frame, returning zero or more output frames.
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>>;
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>>;
 
-    /// Drain any internally buffered samples at end-of-stream.
-    fn flush(&mut self) -> Result<Vec<AudioFrame>> {
+    /// Drain any internally buffered samples at end-of-stream. `params`
+    /// describes the same stream-level shape passed to
+    /// [`AudioFilter::process`].
+    fn flush(&mut self, _params: AudioStreamParams) -> Result<Vec<AudioFrame>> {
         Ok(Vec::new())
     }
 }

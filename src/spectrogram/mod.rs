@@ -22,8 +22,8 @@
 use crate::fft::real_fft;
 use crate::sample_convert::decode_to_f32;
 use oxideav_core::{
-    AudioFrame, Error, FilterContext, Frame, PixelFormat, PortParams, PortSpec, Result,
-    SampleFormat, StreamFilter, TimeBase, VideoFrame, VideoPlane,
+    AudioFrame, CodecParameters, Error, FilterContext, Frame, PixelFormat, PortParams, PortSpec,
+    Result, SampleFormat, StreamFilter, TimeBase, VideoFrame, VideoPlane,
 };
 
 mod colormaps;
@@ -177,19 +177,17 @@ impl Spectrogram {
         })
     }
 
-    /// Configure the streaming ports from the first input frame.
-    /// Called lazily on the first [`StreamFilter::push`] — placeholder
-    /// ports live in [`StreamState::default`] until then.
+    /// Anchor the per-stream cadence on the first input frame's pts.
+    /// Stream-level shape (sample rate / channels / format / time_base)
+    /// is no longer carried per-frame; configure it up-front via
+    /// [`Spectrogram::with_audio_input`] or
+    /// [`Spectrogram::with_codec_parameters`]. If neither is called the
+    /// placeholder values from [`StreamState::new`] are used.
     fn init_stream_ports(&mut self, frame: &AudioFrame) {
         let ss = &mut self.stream;
         if ss.initialized {
             return;
         }
-        ss.input_sample_rate = frame.sample_rate.max(1);
-        ss.input_channels = frame.channels.max(1);
-        ss.input_format = frame.format;
-        ss.input_time_base = frame.time_base;
-        ss.samples_per_video_frame = ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
         ss.samples_elapsed = 0;
         ss.next_emit_at = ss.samples_per_video_frame as u64;
         ss.emitted_video_frames = 0;
@@ -205,28 +203,6 @@ impl Spectrogram {
             ss.input_sample_rate as u64,
             ss.input_time_base,
         );
-
-        ss.input_ports = vec![PortSpec::audio(
-            "audio",
-            ss.input_sample_rate,
-            ss.input_channels,
-            ss.input_format,
-        )];
-        ss.output_ports = vec![
-            PortSpec::audio(
-                "audio",
-                ss.input_sample_rate,
-                ss.input_channels,
-                ss.input_format,
-            ),
-            PortSpec::video(
-                "video",
-                self.opts.width,
-                self.opts.height,
-                PixelFormat::Rgb24,
-                ss.input_time_base,
-            ),
-        ];
         ss.initialized = true;
     }
 
@@ -283,12 +259,10 @@ impl Spectrogram {
         let stride = w * 3;
         let pts = self.stream.base_pts_in_tb
             + self.stream.emitted_video_frames * self.stream.pts_step_in_tb;
+        // Stream-level video properties (format=Rgb24, width, height,
+        // time_base) live on the output port spec — see `output_ports()`.
         VideoFrame {
-            format: PixelFormat::Rgb24,
-            width: self.opts.width,
-            height: self.opts.height,
             pts: Some(pts),
-            time_base: self.stream.input_time_base,
             planes: vec![VideoPlane { stride, data }],
         }
     }
@@ -304,8 +278,12 @@ impl Spectrogram {
     }
 
     /// Feed one audio frame. Multi-channel input is averaged to mono.
+    /// Reads the cached `input_format` / `input_channels` (set up via
+    /// [`Spectrogram::with_audio_input`] or
+    /// [`Spectrogram::with_codec_parameters`]) since the frame itself
+    /// no longer carries them.
     pub fn feed(&mut self, frame: &AudioFrame) -> Result<()> {
-        let channels = decode_to_f32(frame)?;
+        let channels = decode_to_f32(frame, self.stream.input_format, self.stream.input_channels)?;
         let n_chan = channels.len();
         let n_samples = channels.first().map(|c| c.len()).unwrap_or(0);
         if n_chan == 0 || n_samples == 0 {
@@ -398,15 +376,15 @@ impl Spectrogram {
     /// Render the accumulated columns into a single `PixelFormat::Rgb24`
     /// [`VideoFrame`]. Pipe this through any image/video encoder registered
     /// in the codec registry (PNG, JPEG, BMP, …) to write it to disk.
+    /// Stream-level shape (Rgb24, width × height, identity time_base)
+    /// must accompany the frame in a separate
+    /// [`CodecParameters`](oxideav_core::CodecParameters); the
+    /// downstream encoder reads them from there.
     pub fn finalize_frame(&self) -> VideoFrame {
         let rgb = self.finalize_rgb();
         let stride = self.opts.width as usize * 3;
         VideoFrame {
-            format: PixelFormat::Rgb24,
-            width: self.opts.width,
-            height: self.opts.height,
             pts: None,
-            time_base: TimeBase::new(1, 1),
             planes: vec![VideoPlane { stride, data: rgb }],
         }
     }
@@ -438,47 +416,68 @@ impl Spectrogram {
             format,
         } = input.params
         {
-            let ss = &mut self.stream;
-            ss.input_sample_rate = sample_rate.max(1);
-            ss.input_channels = channels.max(1);
-            ss.input_format = format;
-            // input_time_base is not carried on PortParams::Audio yet;
-            // assume the common `(1, sample_rate)` convention used by
-            // the executor's synthesised stream infos and every raw
-            // PCM decoder. push() overrides on first audio frame with
-            // the actual AudioFrame.time_base value if it differs.
-            ss.input_time_base = TimeBase::new(1, ss.input_sample_rate as i64);
-            ss.samples_per_video_frame =
-                ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
-            ss.next_emit_at = ss.samples_per_video_frame as u64;
-            ss.pts_step_in_tb = pts_step_for_tb(
-                ss.samples_per_video_frame as u64,
-                ss.input_sample_rate as u64,
-                ss.input_time_base,
-            );
-            ss.input_ports = vec![PortSpec::audio(
+            self.seed_input(format, channels, sample_rate);
+        }
+        self
+    }
+
+    /// Pre-seed the audio input params from a stream's
+    /// [`CodecParameters`]. Equivalent to [`Self::with_audio_input`]
+    /// but reads directly from the source-of-truth instead of an
+    /// intermediate `PortSpec`. Frame-level reads (sample_rate /
+    /// channels / format / time_base) used to populate this state from
+    /// the first push; that pre-slim path is gone now.
+    pub fn with_codec_parameters(mut self, params: &CodecParameters) -> Self {
+        let format = params.sample_format.unwrap_or(SampleFormat::F32);
+        let channels = params
+            .resolved_channels()
+            .filter(|c| *c > 0)
+            .unwrap_or(2);
+        let sample_rate = params.sample_rate.filter(|r| *r > 0).unwrap_or(48_000);
+        self.seed_input(format, channels, sample_rate);
+        self
+    }
+
+    fn seed_input(&mut self, format: SampleFormat, channels: u16, sample_rate: u32) {
+        let ss = &mut self.stream;
+        ss.input_sample_rate = sample_rate.max(1);
+        ss.input_channels = channels.max(1);
+        ss.input_format = format;
+        // input_time_base is not carried on PortParams::Audio yet;
+        // assume the common `(1, sample_rate)` convention used by the
+        // executor's synthesised stream infos and every raw PCM decoder.
+        // (The slimmed AudioFrame no longer carries a per-frame
+        // override path.)
+        ss.input_time_base = TimeBase::new(1, ss.input_sample_rate as i64);
+        ss.samples_per_video_frame =
+            ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
+        ss.next_emit_at = ss.samples_per_video_frame as u64;
+        ss.pts_step_in_tb = pts_step_for_tb(
+            ss.samples_per_video_frame as u64,
+            ss.input_sample_rate as u64,
+            ss.input_time_base,
+        );
+        ss.input_ports = vec![PortSpec::audio(
+            "audio",
+            ss.input_sample_rate,
+            ss.input_channels,
+            ss.input_format,
+        )];
+        ss.output_ports = vec![
+            PortSpec::audio(
                 "audio",
                 ss.input_sample_rate,
                 ss.input_channels,
                 ss.input_format,
-            )];
-            ss.output_ports = vec![
-                PortSpec::audio(
-                    "audio",
-                    ss.input_sample_rate,
-                    ss.input_channels,
-                    ss.input_format,
-                ),
-                PortSpec::video(
-                    "video",
-                    self.opts.width,
-                    self.opts.height,
-                    PixelFormat::Rgb24,
-                    ss.input_time_base,
-                ),
-            ];
-        }
-        self
+            ),
+            PortSpec::video(
+                "video",
+                self.opts.width,
+                self.opts.height,
+                PixelFormat::Rgb24,
+                ss.input_time_base,
+            ),
+        ];
     }
 }
 
@@ -605,12 +604,8 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
         AudioFrame {
-            format: SampleFormat::F32,
-            channels: 1,
-            sample_rate: rate,
             samples: n as u32,
             pts: None,
-            time_base: TimeBase::new(1, rate as i64),
             data: vec![bytes],
         }
     }
@@ -645,9 +640,9 @@ mod tests {
         };
         let s = Spectrogram::new(opts).unwrap();
         let frame = s.finalize_frame();
-        assert_eq!(frame.format, PixelFormat::Rgb24);
-        assert_eq!(frame.width, 32);
-        assert_eq!(frame.height, 16);
+        // Stream-level shape (Rgb24 / 32 × 16 / identity time_base) is
+        // not on the frame any more — the contract is "stride = width * 3"
+        // and "data = stride * height". Verify those.
         assert_eq!(frame.planes.len(), 1);
         assert_eq!(frame.planes[0].stride, 32 * 3);
         assert_eq!(frame.planes[0].data.len(), 32 * 16 * 3);
@@ -678,7 +673,7 @@ mod tests {
 
     #[test]
     fn stream_filter_emits_audio_passthrough_and_video_at_cadence() {
-        use oxideav_core::Frame;
+        use oxideav_core::{CodecId, CodecParameters, Frame};
 
         struct Collect {
             out: Vec<(usize, Frame)>,
@@ -697,7 +692,16 @@ mod tests {
             height: 16,
             ..Default::default()
         };
-        let mut s = Spectrogram::new(opts).unwrap().with_video_fps(30);
+        // Stream shape (sample_rate = 44.1k, mono, F32) used to be
+        // sniffed off the first AudioFrame. With the slim it must be
+        // seeded up front via with_codec_parameters / with_audio_input.
+        let mut params = CodecParameters::audio(CodecId::new("pcm_f32le")).channels(1);
+        params.sample_rate = Some(44_100);
+        params.sample_format = Some(SampleFormat::F32);
+        let mut s = Spectrogram::new(opts)
+            .unwrap()
+            .with_video_fps(30)
+            .with_codec_parameters(&params);
         let mut ctx = Collect { out: Vec::new() };
 
         // Feed 1 second of 44100 Hz audio in 10 × 4410-sample chunks.
@@ -719,6 +723,8 @@ mod tests {
         // A/V sync is a direct pts compare downstream. With
         // sample_rate = 44_100 and fps = 30, one video-frame period is
         // 44_100 / 30 = 1470 sample-ticks under TimeBase(1, 44_100).
+        // Stream-level video properties (Rgb24, 32 × 16, time_base)
+        // live on the output port spec — checked separately below.
         let mut expected_pts = 0i64;
         for (p, f) in &ctx.out {
             if *p != 1 {
@@ -732,19 +738,30 @@ mod tests {
                 pts, expected_pts,
                 "video pts must step by 1470 sample-ticks"
             );
-            assert_eq!(vf.width, 32);
-            assert_eq!(vf.height, 16);
-            assert_eq!(vf.format, PixelFormat::Rgb24);
-            assert_eq!(vf.time_base, TimeBase::new(1, 44_100));
             expected_pts += 1_470;
         }
 
-        // Ports reflect the actual input sample rate after the first push.
+        // Ports reflect the seeded input sample rate.
         let outs = s.output_ports();
         let PortParams::Audio { sample_rate, .. } = &outs[0].params else {
             panic!("expected audio on port 0")
         };
         assert_eq!(*sample_rate, 44_100);
+        // Video output port carries the Rgb24 / width / height / tb
+        // contract that was previously asserted on the frame itself.
+        let PortParams::Video {
+            width,
+            height,
+            format,
+            time_base,
+        } = &outs[1].params
+        else {
+            panic!("expected video on port 1")
+        };
+        assert_eq!(*width, 32);
+        assert_eq!(*height, 16);
+        assert_eq!(*format, PixelFormat::Rgb24);
+        assert_eq!(*time_base, TimeBase::new(1, 44_100));
     }
 
     #[test]
@@ -760,7 +777,16 @@ mod tests {
             colormap: Colormap::Grayscale,
             window: Window::Hann,
         };
-        let mut s = Spectrogram::new(opts.clone()).unwrap();
+        // feed() reads the cached `input_format` / `input_channels`
+        // values; seed them via with_codec_parameters so the F32 mono
+        // 8 kHz fixture matches.
+        use oxideav_core::{CodecId, CodecParameters};
+        let mut params = CodecParameters::audio(CodecId::new("pcm_f32le")).channels(1);
+        params.sample_rate = Some(8_000);
+        params.sample_format = Some(SampleFormat::F32);
+        let mut s = Spectrogram::new(opts.clone())
+            .unwrap()
+            .with_codec_parameters(&params);
         let frame = sine_frame(440.0, 8_000, 8_000);
         s.feed(&frame).unwrap();
         let rgb = s.finalize_rgb();

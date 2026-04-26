@@ -33,7 +33,7 @@
 //! (e.g. stereo → 5.1 — that's an upmix and lives in a different filter).
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::AudioFilter;
+use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, ChannelLayout, ChannelPosition, Error, Result, SampleFormat};
 
 /// Speed of sound in m/s. Used by the binaural ITD model.
@@ -171,16 +171,23 @@ impl DownmixFilter {
 
     /// Apply the matrix to a single audio frame, returning a new frame
     /// with `dst.channel_count()` channels. The input's sample count
-    /// is preserved 1:1.
-    fn apply(&self, input: &AudioFrame) -> Result<AudioFrame> {
+    /// is preserved 1:1. `format` and `channels` describe the upstream
+    /// stream's `CodecParameters` — the layout's channel count is
+    /// asserted to match `channels` here.
+    fn apply(
+        &self,
+        input: &AudioFrame,
+        format: SampleFormat,
+        channels: u16,
+    ) -> Result<AudioFrame> {
         let src_ch = self.src.channel_count() as usize;
-        if input.channels as usize != src_ch {
+        if channels as usize != src_ch {
             return Err(Error::invalid(format!(
-                "downmix: input has {} channels, matrix expects {}",
-                input.channels, src_ch
+                "downmix: input stream has {} channels, matrix expects {}",
+                channels, src_ch
             )));
         }
-        let in_data = decode_to_f32(input)?;
+        let in_data = decode_to_f32(input, format, channels)?;
         let n_samples = in_data.first().map(|c| c.len()).unwrap_or(0);
         let dst_ch = self.dst.channel_count() as usize;
 
@@ -218,25 +225,20 @@ impl DownmixFilter {
             }
         }
 
-        // Build a synthetic template so encode_from_f32 produces a frame
-        // with the right channel count. We can't just clone `input` —
-        // its channel count is wrong for the output.
-        let template = AudioFrame {
-            format: input.format,
-            channels: dst_ch as u16,
-            sample_rate: input.sample_rate,
-            samples: n_samples as u32,
-            pts: input.pts,
-            time_base: input.time_base,
-            data: empty_planes(input.format, dst_ch),
-        };
-        encode_from_f32(&template, &out_data)
+        // Output frame inherits format from the input stream; the
+        // destination channel count comes from `self.dst` and lives on
+        // the downstream port spec, not the frame.
+        encode_from_f32(format, dst_ch as u16, input, &out_data)
     }
 }
 
 impl AudioFilter for DownmixFilter {
-    fn process(&mut self, input: &AudioFrame) -> Result<Vec<AudioFrame>> {
-        Ok(vec![self.apply(input)?])
+    fn process(
+        &mut self,
+        input: &AudioFrame,
+        params: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        Ok(vec![self.apply(input, params.format, params.channels)?])
     }
 }
 
@@ -663,21 +665,17 @@ fn normalise_overload(rows: &mut [Vec<f32>]) {
     }
 }
 
-/// Build empty backing planes appropriate for `format` and `channels`.
-/// `encode_from_f32` overwrites the data so the contents don't matter,
-/// only the plane count needs to match `format.is_planar()`.
-fn empty_planes(format: SampleFormat, channels: usize) -> Vec<Vec<u8>> {
-    if format.is_planar() {
-        (0..channels).map(|_| Vec::new()).collect()
-    } else {
-        vec![Vec::new()]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxideav_core::TimeBase;
+
+    fn f32_planar(channels: u16) -> AudioStreamParams {
+        AudioStreamParams {
+            format: SampleFormat::F32P,
+            channels,
+            sample_rate: 48_000,
+        }
+    }
 
     fn f32_frame(channels: u16, samples_per_ch: &[Vec<f32>]) -> AudioFrame {
         // F32P planar so we can hand each channel its own buffer.
@@ -693,12 +691,8 @@ mod tests {
             data.push(bytes);
         }
         AudioFrame {
-            format: SampleFormat::F32P,
-            channels,
-            sample_rate: 48_000,
             samples: n_samples as u32,
             pts: None,
-            time_base: TimeBase::new(1, 48_000),
             data,
         }
     }
@@ -747,7 +741,7 @@ mod tests {
             DownmixMode::LoRo,
         )
         .unwrap();
-        let out = f.process(&frame).unwrap();
+        let out = f.process(&frame, f32_planar(6)).unwrap();
         assert_eq!(out.len(), 1);
         let got = read_f32_planar(&out[0]);
         assert_eq!(got.len(), 2);
@@ -782,7 +776,7 @@ mod tests {
             DownmixMode::LoRo,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(6)).unwrap()[0]);
         assert!(
             (got[0][0] - 0.4143).abs() < 1e-3,
             "Lo expected ≈0.4143, got {}",
@@ -811,7 +805,7 @@ mod tests {
             DownmixMode::LoRo,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(6)).unwrap()[0]);
         for (l, r) in got[0].iter().zip(got[1].iter()).take(4) {
             assert!(l.abs() < 1e-6);
             assert!(r.abs() < 1e-6);
@@ -840,7 +834,7 @@ mod tests {
             DownmixMode::LtRt,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(6)).unwrap()[0]);
         let lt = got[0][0];
         let rt = got[1][0];
         assert!(
@@ -864,7 +858,7 @@ mod tests {
             DownmixMode::Average,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(2)).unwrap()[0]);
         assert_eq!(got.len(), 1);
         for s in &got[0] {
             assert!((*s - 0.5).abs() < 1e-6, "expected 0.5, got {s}");
@@ -880,7 +874,7 @@ mod tests {
             DownmixMode::Average,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(1)).unwrap()[0]);
         assert_eq!(got.len(), 2);
         for s in &got[0] {
             assert!((*s - 0.3).abs() < 1e-6);
@@ -906,7 +900,7 @@ mod tests {
             DownmixMode::Binaural,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(6)).unwrap()[0]);
         // Left ear sees the impulse at sample 0 (after normalisation
         // its amplitude is below 1.0 but well above 0).
         let l_first = got[0].iter().position(|s| s.abs() > 1e-6).unwrap();
@@ -1009,7 +1003,7 @@ mod tests {
             DownmixMode::LoRo,
         )
         .unwrap();
-        let got = read_f32_planar(&f.process(&frame).unwrap()[0]);
+        let got = read_f32_planar(&f.process(&frame, f32_planar(6)).unwrap()[0]);
         assert_eq!(got.len(), 1);
         assert!(got[0][0] > 0.0);
         assert!(got[0][0].abs() <= 1.0 + 1e-6);
