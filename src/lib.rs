@@ -28,7 +28,10 @@
 //!   conversion.
 //! - [`Spectrogram`](spectrogram::Spectrogram) — STFT-based image renderer
 //!   with PNG output.
+//! - [`DownmixFilter`](downmix::DownmixFilter) — channel-layout fold-down
+//!   (LoRo / LtRt / Average / Binaural).
 
+pub mod downmix;
 pub mod echo;
 pub mod fft;
 pub mod noise_gate;
@@ -38,6 +41,7 @@ pub mod sample_convert;
 pub mod spectrogram;
 pub mod volume;
 
+pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
 pub use noise_gate::NoiseGate;
 pub use registry::register;

@@ -7,10 +7,11 @@
 //! itself doesn't need to depend on this crate.
 
 use oxideav_core::{
-    filter::FilterContext, Error, Frame, MediaType, PortParams, PortSpec, Result, RuntimeContext,
-    SampleFormat, StreamFilter,
+    filter::FilterContext, ChannelLayout, Error, Frame, MediaType, PortParams, PortSpec, Result,
+    RuntimeContext, SampleFormat, StreamFilter,
 };
 use serde_json::Value;
+use std::str::FromStr;
 
 use crate::AudioFilter;
 
@@ -25,6 +26,7 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("resample", Box::new(make_resample));
     ctx.filters
         .register("spectrogram", Box::new(make_spectrogram));
+    ctx.filters.register("downmix", Box::new(make_downmix));
 }
 
 /// Wraps a legacy [`AudioFilter`] in the [`StreamFilter`] contract.
@@ -236,4 +238,61 @@ fn make_spectrogram(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Strea
         s = s.with_audio_input(audio);
     }
     Ok(Box::new(s) as Box<dyn StreamFilter>)
+}
+
+/// `{"filter": "downmix", "to": "stereo", "mode": "loro"}` — fold a
+/// surround source into a smaller layout.
+///
+/// Required params:
+///   - `to`: destination layout name (`"stereo"`, `"mono"`, `"5.1"`, …),
+///     parsed via [`ChannelLayout::from_str`].
+///
+/// Optional params:
+///   - `mode`: `"loro"` (default for surround→stereo), `"ltrt"`,
+///     `"average"` / `"avg"`, or `"binaural"` / `"hrtf"`. Omitted →
+///     [`crate::auto_downmix`] picks one.
+///   - `from`: source layout name. When absent the source is inferred
+///     from the upstream port's channel count.
+fn make_downmix(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{auto_downmix, DownmixFilter, DownmixMode};
+
+    let p = params.as_object();
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+
+    let in_port = audio_in_port(inputs);
+    let (src_rate, src_channels, src_format) = match &in_port.params {
+        PortParams::Audio {
+            sample_rate,
+            channels,
+            format,
+        } => (*sample_rate, *channels, *format),
+        _ => (48_000, 2, SampleFormat::F32),
+    };
+
+    let src_layout = if let Some(name) = get_str("from") {
+        ChannelLayout::from_str(name)
+            .map_err(|e| Error::invalid(format!("downmix: invalid `from` layout {name:?}: {e}")))?
+    } else {
+        ChannelLayout::from_count(src_channels)
+    };
+
+    let dst_name = get_str("to").ok_or_else(|| {
+        Error::invalid("job: filter 'downmix' needs `to` (destination channel layout)")
+    })?;
+    let dst_layout = ChannelLayout::from_str(dst_name)
+        .map_err(|e| Error::invalid(format!("downmix: invalid `to` layout {dst_name:?}: {e}")))?;
+
+    let filter = if let Some(mode_name) = get_str("mode") {
+        let mode = DownmixMode::from_name(mode_name)?;
+        DownmixFilter::new(src_layout, dst_layout, mode)?
+    } else {
+        auto_downmix(src_layout, dst_layout)?
+    };
+
+    let out_port = PortSpec::audio("audio", src_rate, dst_layout.channel_count(), src_format);
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(filter),
+        in_port,
+        out_port,
+    )))
 }
