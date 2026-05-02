@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.0.5...v0.0.6) - 2026-05-02
+
+### Added
+
+- *(downmix)* add DownmixFilter with LoRo / LtRt / Average / Binaural modes
+
+### Other
+
+- stay on 0.1.x during heavy dev (semver_check=false)
+- round 17: SampleFormat non_exhaustive arms + dead_code allow + fmt
+- adopt slim VideoFrame/AudioFrame shape
+- pin release-plz to patch-only bumps
+
 ## [0.0.5](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.0.4...v0.0.5) - 2026-04-25
 
 ### Other
