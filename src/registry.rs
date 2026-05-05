@@ -18,6 +18,11 @@ use crate::{AudioFilter, AudioStreamParams};
 /// Install Volume, NoiseGate, Echo, Resample, and Spectrogram into the
 /// runtime context's filter registry. Idempotent — last write wins
 /// per filter name.
+///
+/// Also auto-registered into [`oxideav_core::REGISTRARS`] via the
+/// [`oxideav_core::register!`] macro below so consumers calling
+/// [`oxideav_core::RuntimeContext::with_all_features`] pick the
+/// audio filters up without any explicit umbrella plumbing.
 pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("volume", Box::new(make_volume));
     ctx.filters
@@ -28,6 +33,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("spectrogram", Box::new(make_spectrogram));
     ctx.filters.register("downmix", Box::new(make_downmix));
 }
+
+oxideav_core::register!("audio_filter", register);
 
 /// Wraps a legacy [`AudioFilter`] in the [`StreamFilter`] contract.
 /// Single audio port in, single audio port out; both inherit params
