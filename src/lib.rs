@@ -44,7 +44,7 @@ pub mod volume;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
 pub use noise_gate::NoiseGate;
-pub use registry::register;
+pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use volume::Volume;
