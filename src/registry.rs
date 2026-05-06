@@ -19,10 +19,8 @@ use crate::{AudioFilter, AudioStreamParams};
 /// runtime context's filter registry. Idempotent — last write wins
 /// per filter name.
 ///
-/// Also auto-registered into [`oxideav_core::REGISTRARS`] via the
-/// [`oxideav_core::register!`] macro below so consumers calling
-/// [`oxideav_core::RuntimeContext::with_all_features`] pick the
-/// audio filters up without any explicit umbrella plumbing.
+/// Also wired into [`oxideav_meta::register_all`] via the
+/// [`oxideav_core::register!`] macro below.
 pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("volume", Box::new(make_volume));
     ctx.filters
