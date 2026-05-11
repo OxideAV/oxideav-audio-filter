@@ -34,6 +34,16 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("compressor", Box::new(make_compressor));
     ctx.filters.register("limiter", Box::new(make_limiter));
+    ctx.filters
+        .register("dc_blocker", Box::new(make_dc_blocker));
+    ctx.filters
+        .register("stereo_widener", Box::new(make_stereo_widener));
+    ctx.filters.register("reverb", Box::new(make_reverb));
+    ctx.filters.register("tremolo", Box::new(make_tremolo));
+    ctx.filters
+        .register("loudness_itu", Box::new(make_loudness_itu));
+    ctx.filters
+        .register("pitch_shift", Box::new(make_pitch_shift));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -447,6 +457,139 @@ fn make_limiter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFil
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(lim),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "dc_blocker", "pole": 0.995}` — single-pole DC remover.
+fn make_dc_blocker(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::DcBlocker;
+    let p = params.as_object();
+    let get_f64 = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_f64());
+    let bl = match get_f64("pole") {
+        Some(v) => DcBlocker::with_pole(v as f32),
+        None => DcBlocker::new(),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(bl),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "stereo_widener", "width": 1.5}` — M/S width control.
+fn make_stereo_widener(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::StereoWidener;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let w = StereoWidener::new(get_f64("width", 1.0) as f32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(w),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "reverb", "room_size": 0.5, "damping": 0.5,
+/// "wet": 0.33, "dry": 0.67}` — Schroeder algorithmic reverb.
+fn make_reverb(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Reverb;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let r = Reverb::new(
+        get_f64("room_size", 0.5) as f32,
+        get_f64("damping", 0.5) as f32,
+        get_f64("wet", 0.33) as f32,
+        get_f64("dry", 0.67) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(r),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "tremolo", "rate_hz": 5.0, "depth": 0.5}` — sine LFO AM.
+fn make_tremolo(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Tremolo;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let t = Tremolo::new(get_f64("rate_hz", 5.0) as f32, get_f64("depth", 0.5) as f32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(t),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "loudness_itu"}` — ITU-R BS.1770-4 loudness meter.
+/// Has no parameters; reads back via API. Output port is preserved
+/// (the meter passes nothing through downstream).
+fn make_loudness_itu(_params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::LoudnessITU;
+    let m = LoudnessITU::new();
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "pitch_shift", "semitones": 7.0}` — granular pitch shift.
+fn make_pitch_shift(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::PitchShift;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let ps = PitchShift::new(get_f64("semitones", 0.0) as f32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ps),
         in_port,
         out_port,
     )))

@@ -15,6 +15,12 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **biquad** — seven-config IIR EQ family (LPF / HPF / BPF / notch / peaking / low-shelf / high-shelf) with DF-II-T `f64` state
 - **compressor** — peak compressor with soft-knee, attack/release follower, and make-up gain
 - **limiter** — brickwall peak limiter with optional look-ahead (0..=2048 samples)
+- **dc_blocker** — single-pole IIR HPF (`y[n] = x[n] - x[n-1] + R·y[n-1]`) for DC-offset removal
+- **stereo_widener** — Mid/Side width control with `width ∈ [0, 2]` (0 = mono, 1 = bypass, 2 = wide)
+- **reverb** — Schroeder algorithmic reverb (4 parallel combs ║ 2 serial all-passes) with room_size / damping / wet / dry knobs
+- **tremolo** — sine-LFO amplitude modulation with rate / depth knobs
+- **loudness_itu** — ITU-R BS.1770-4 / EBU R128 integrated loudness meter (LUFS) with K-weighting + channel weights
+- **pitch_shift** — time-domain SOLA-style granular pitch shifter (`-12..=+12` semitones, no FFT)
 
 ## Usage
 

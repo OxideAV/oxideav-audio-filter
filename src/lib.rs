@@ -37,29 +37,52 @@
 //!   with soft-knee + attack/release follower + make-up gain.
 //! - [`Limiter`](limiter::Limiter) — brickwall peak limiter with
 //!   optional look-ahead.
+//! - [`DcBlocker`](dc_blocker::DcBlocker) — first-order IIR HPF at
+//!   sub-audible cutoff to remove DC offsets.
+//! - [`StereoWidener`](stereo_widener::StereoWidener) — M/S width
+//!   control with `width ∈ [0, 2]`.
+//! - [`Reverb`](reverb::Reverb) — Schroeder-style algorithmic reverb
+//!   (4 parallel combs ║ 2 serial all-passes).
+//! - [`Tremolo`](tremolo::Tremolo) — sine-LFO amplitude modulation.
+//! - [`LoudnessITU`](loudness::LoudnessITU) — ITU-R BS.1770-4 / EBU
+//!   R128 integrated-loudness measurement (LUFS).
+//! - [`PitchShift`](pitch_shift::PitchShift) — time-domain SOLA-style
+//!   granular pitch shifter (`-12..=+12` semitones, no FFT).
 
 pub mod biquad;
 pub mod compressor;
+pub mod dc_blocker;
 pub mod downmix;
 pub mod echo;
 pub mod fft;
 pub mod limiter;
+pub mod loudness;
 pub mod noise_gate;
+pub mod pitch_shift;
 pub mod registry;
 pub mod resample;
+pub mod reverb;
 pub mod sample_convert;
 pub mod spectrogram;
+pub mod stereo_widener;
+pub mod tremolo;
 pub mod volume;
 
 pub use biquad::{Biquad, BiquadKind};
 pub use compressor::Compressor;
+pub use dc_blocker::DcBlocker;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
 pub use limiter::Limiter;
+pub use loudness::LoudnessITU;
 pub use noise_gate::NoiseGate;
+pub use pitch_shift::PitchShift;
 pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;
+pub use reverb::Reverb;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
+pub use stereo_widener::StereoWidener;
+pub use tremolo::Tremolo;
 pub use volume::Volume;
 
 use oxideav_core::{AudioFrame, Result, SampleFormat};

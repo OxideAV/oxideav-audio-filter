@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 3: six new filter families — `dc_blocker` (single-pole IIR
+  HPF at sub-audible cutoff for DC-offset removal), `stereo_widener`
+  (Mid/Side width control with `width ∈ [0, 2]`), `reverb` (Schroeder
+  algorithmic reverb: 4 parallel combs ║ 2 serial all-passes with
+  room_size / damping / wet / dry knobs), `tremolo` (sine-LFO
+  amplitude modulation with rate / depth), `loudness_itu` (ITU-R
+  BS.1770-4 / EBU R128 integrated-loudness meter with K-weighting
+  via bilinear-transformed analog prototypes + channel weights), and
+  `pitch_shift` (time-domain SOLA-style granular pitch shifter,
+  `-12..=+12` semitones, no FFT). All six registered in
+  `registry::register` and wired through the standard `AudioFilter`
+  contract.
 - round 2: three new filter families — `biquad` (seven-config IIR EQ with
   bilinear-transform coefficient derivation: LPF/HPF/BPF/notch/peaking
   /low-shelf/high-shelf, DF-II-T core with `f64` state), `compressor`
