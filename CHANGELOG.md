@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- round 2: three new filter families — `biquad` (seven-config IIR EQ with
+  bilinear-transform coefficient derivation: LPF/HPF/BPF/notch/peaking
+  /low-shelf/high-shelf, DF-II-T core with `f64` state), `compressor`
+  (peak detector with soft-knee + attack/release one-pole follower +
+  make-up gain), and `limiter` (brickwall peak limiter with optional
+  look-ahead, 0..=2048 samples). All three registered in
+  `registry::register` and wired through the standard `AudioFilter`
+  contract.
+
 ## [0.1.1](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.1.0...v0.1.1) - 2026-05-06
 
 ### Other

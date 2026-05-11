@@ -30,10 +30,20 @@
 //!   with PNG output.
 //! - [`DownmixFilter`](downmix::DownmixFilter) — channel-layout fold-down
 //!   (LoRo / LtRt / Average / Binaural).
+//! - [`Biquad`](biquad::Biquad) — second-order IIR EQ family (LPF/HPF
+//!   /BPF/notch/peaking/low-shelf/high-shelf) with bilinear-transform
+//!   coefficient derivation.
+//! - [`Compressor`](compressor::Compressor) — peak-detector compressor
+//!   with soft-knee + attack/release follower + make-up gain.
+//! - [`Limiter`](limiter::Limiter) — brickwall peak limiter with
+//!   optional look-ahead.
 
+pub mod biquad;
+pub mod compressor;
 pub mod downmix;
 pub mod echo;
 pub mod fft;
+pub mod limiter;
 pub mod noise_gate;
 pub mod registry;
 pub mod resample;
@@ -41,8 +51,11 @@ pub mod sample_convert;
 pub mod spectrogram;
 pub mod volume;
 
+pub use biquad::{Biquad, BiquadKind};
+pub use compressor::Compressor;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
+pub use limiter::Limiter;
 pub use noise_gate::NoiseGate;
 pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;

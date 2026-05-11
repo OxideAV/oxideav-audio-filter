@@ -30,6 +30,10 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("spectrogram", Box::new(make_spectrogram));
     ctx.filters.register("downmix", Box::new(make_downmix));
+    ctx.filters.register("biquad", Box::new(make_biquad));
+    ctx.filters
+        .register("compressor", Box::new(make_compressor));
+    ctx.filters.register("limiter", Box::new(make_limiter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -321,6 +325,128 @@ fn make_downmix(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFil
     let out_port = PortSpec::audio("audio", src_rate, dst_layout.channel_count(), src_format);
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(filter),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "biquad", "kind": "low_pass", "cutoff_hz": 1000.0, "q": 0.707}`.
+///
+/// Required: `kind` — one of `"low_pass"`, `"high_pass"`, `"band_pass"`,
+/// `"notch"`, `"peaking"`, `"low_shelf"`, `"high_shelf"`.
+///
+/// `cutoff_hz` / `center_hz` and `q` are required for every kind;
+/// `gain_db` is required for `peaking` / `low_shelf` / `high_shelf`.
+fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::biquad::{Biquad, BiquadKind};
+
+    let p = params.as_object();
+    let get_f64 = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_f64());
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+
+    let kind_name =
+        get_str("kind").ok_or_else(|| Error::invalid("job: filter 'biquad' needs `kind`"))?;
+    let freq = get_f64("cutoff_hz")
+        .or_else(|| get_f64("center_hz"))
+        .ok_or_else(|| Error::invalid("job: filter 'biquad' needs `cutoff_hz` or `center_hz`"))?
+        as f32;
+    let q = get_f64("q").unwrap_or(std::f64::consts::FRAC_1_SQRT_2) as f32;
+    let gain_db = get_f64("gain_db").unwrap_or(0.0) as f32;
+
+    let kind = match kind_name {
+        "low_pass" | "lpf" => BiquadKind::LowPass { cutoff_hz: freq, q },
+        "high_pass" | "hpf" => BiquadKind::HighPass { cutoff_hz: freq, q },
+        "band_pass" | "bpf" => BiquadKind::BandPass { center_hz: freq, q },
+        "notch" => BiquadKind::Notch { center_hz: freq, q },
+        "peaking" | "peak" => BiquadKind::Peaking {
+            center_hz: freq,
+            q,
+            gain_db,
+        },
+        "low_shelf" | "lowshelf" => BiquadKind::LowShelf {
+            cutoff_hz: freq,
+            q,
+            gain_db,
+        },
+        "high_shelf" | "highshelf" => BiquadKind::HighShelf {
+            cutoff_hz: freq,
+            q,
+            gain_db,
+        },
+        other => return Err(Error::invalid(format!("biquad: unknown kind {other:?}"))),
+    };
+
+    let bq = Biquad::new(kind);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(bq),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "compressor", "threshold_db": -18.0, "ratio": 4.0,
+/// "attack_ms": 10.0, "release_ms": 100.0, "knee_db": 6.0,
+/// "makeup_gain_db": 0.0}`.
+fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Compressor;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let comp = Compressor::new(
+        get_f64("threshold_db", -18.0) as f32,
+        get_f64("ratio", 4.0) as f32,
+        get_f64("attack_ms", 10.0) as f32,
+        get_f64("release_ms", 100.0) as f32,
+        get_f64("knee_db", 0.0) as f32,
+        get_f64("makeup_gain_db", 0.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(comp),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "limiter", "ceiling_db": -0.3, "release_ms": 50.0,
+/// "look_ahead_samples": 64}`.
+fn make_limiter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Limiter;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let lim = Limiter::new(
+        get_f64("ceiling_db", -0.3) as f32,
+        get_f64("release_ms", 50.0) as f32,
+        get_u64("look_ahead_samples", 0) as usize,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(lim),
         in_port,
         out_port,
     )))
