@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 4: eight new filter families — `chorus` (1..=4 LFO-modulated
+  short delay taps with per-voice phase offsets), `flanger` (short-delay
+  feedback comb with swept resonance, 1..=15 ms), `phaser` (N=2..=12
+  cascaded first-order all-pass sections with LFO-swept cutoffs +
+  optional feedback), `equalizer` (builder over N `Biquad` sections in
+  series), `white_noise` / `pink_noise` / `brown_noise` (splitmix64-seeded
+  generators with flat / 1/f / 1/f² spectra — Paul Kellet's pink-noise
+  filter, leaky-integrator brown), and `silence_detector` (pass-through
+  RMS envelope observer with attack/release + hold-threshold flag). All
+  eight registered in `registry::register` and wired through the standard
+  `AudioFilter` contract.
 - round 3: six new filter families — `dc_blocker` (single-pole IIR
   HPF at sub-audible cutoff for DC-offset removal), `stereo_widener`
   (Mid/Side width control with `width ∈ [0, 2]`), `reverb` (Schroeder

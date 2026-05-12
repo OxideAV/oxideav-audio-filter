@@ -21,6 +21,12 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **tremolo** — sine-LFO amplitude modulation with rate / depth knobs
 - **loudness_itu** — ITU-R BS.1770-4 / EBU R128 integrated loudness meter (LUFS) with K-weighting + channel weights
 - **pitch_shift** — time-domain SOLA-style granular pitch shifter (`-12..=+12` semitones, no FFT)
+- **chorus** — 1..=4 LFO-modulated short delay taps with phase-offset voices
+- **flanger** — short-delay feedback comb (1..=15 ms, swept resonance)
+- **phaser** — N (2..=12) cascaded first-order all-pass sections with LFO-swept cutoffs
+- **equalizer** — builder over N `Biquad` sections in series (low/high-pass, BPF, notch, peaking, shelves)
+- **white_noise** / **pink_noise** / **brown_noise** — splitmix64-seeded generators with flat / 1/f / 1/f² spectra
+- **silence_detector** — pass-through observer with attack/release RMS envelope + hold-threshold flag
 
 ## Usage
 

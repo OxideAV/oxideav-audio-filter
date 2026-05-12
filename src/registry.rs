@@ -44,6 +44,18 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("loudness_itu", Box::new(make_loudness_itu));
     ctx.filters
         .register("pitch_shift", Box::new(make_pitch_shift));
+    ctx.filters.register("chorus", Box::new(make_chorus));
+    ctx.filters.register("flanger", Box::new(make_flanger));
+    ctx.filters.register("phaser", Box::new(make_phaser));
+    ctx.filters.register("equalizer", Box::new(make_equalizer));
+    ctx.filters
+        .register("white_noise", Box::new(make_white_noise));
+    ctx.filters
+        .register("pink_noise", Box::new(make_pink_noise));
+    ctx.filters
+        .register("brown_noise", Box::new(make_brown_noise));
+    ctx.filters
+        .register("silence_detector", Box::new(make_silence_detector));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -590,6 +602,274 @@ fn make_pitch_shift(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Strea
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(ps),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "chorus", "n_voices": 2, "base_delay_ms": 25.0,
+/// "depth_ms": 5.0, "rate_hz": 1.0, "mix": 0.5}` — multi-voice chorus.
+fn make_chorus(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Chorus;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let c = Chorus::new(
+        get_u64("n_voices", 2) as u8,
+        get_f64("base_delay_ms", 25.0) as f32,
+        get_f64("depth_ms", 5.0) as f32,
+        get_f64("rate_hz", 1.0) as f32,
+        get_f64("mix", 0.5) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(c),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "flanger", "rate_hz": 0.5, "depth_ms": 5.0,
+/// "feedback": 0.5, "mix": 0.5}` — feedback comb flanger.
+fn make_flanger(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Flanger;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let f = Flanger::new(
+        get_f64("rate_hz", 0.5) as f32,
+        get_f64("depth_ms", 5.0) as f32,
+        get_f64("feedback", 0.5) as f32,
+        get_f64("mix", 0.5) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(f),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "phaser", "n_stages": 4, "rate_hz": 0.5,
+/// "depth_hz": 1000.0, "feedback": 0.3, "mix": 0.5}` — N-stage AP phaser.
+fn make_phaser(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Phaser;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let f = Phaser::new(
+        get_u64("n_stages", 4) as u8,
+        get_f64("rate_hz", 0.5) as f32,
+        get_f64("depth_hz", 1_000.0) as f32,
+        get_f64("feedback", 0.0) as f32,
+        get_f64("mix", 0.5) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(f),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "equalizer", "bands": [
+///   {"kind": "low_shelf", "freq_hz": 100, "q": 0.707, "gain_db": 3},
+///   {"kind": "peaking",   "freq_hz": 1000, "q": 1.0,   "gain_db": -2},
+///   {"kind": "high_shelf","freq_hz": 10000,"q": 0.707, "gain_db": 4}
+/// ]}` — N-band parametric EQ.
+fn make_equalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::biquad::BiquadKind;
+    use crate::Equalizer;
+    let in_port = audio_in_port(inputs);
+    let (sample_rate, _channels, _format) = match &in_port.params {
+        PortParams::Audio {
+            sample_rate,
+            channels,
+            format,
+        } => (*sample_rate, *channels, *format),
+        _ => (48_000, 2, SampleFormat::F32),
+    };
+    let mut eq = Equalizer::new(sample_rate);
+    if let Some(bands) = params.get("bands").and_then(|v| v.as_array()) {
+        for band in bands {
+            let kind = band.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            let freq = band
+                .get("freq_hz")
+                .and_then(|v| v.as_f64())
+                .or_else(|| band.get("cutoff_hz").and_then(|v| v.as_f64()))
+                .or_else(|| band.get("center_hz").and_then(|v| v.as_f64()))
+                .unwrap_or(1_000.0) as f32;
+            let q = band
+                .get("q")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(std::f64::consts::FRAC_1_SQRT_2) as f32;
+            let gain_db = band.get("gain_db").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+            let bk = match kind {
+                "low_pass" | "lpf" => BiquadKind::LowPass { cutoff_hz: freq, q },
+                "high_pass" | "hpf" => BiquadKind::HighPass { cutoff_hz: freq, q },
+                "band_pass" | "bpf" => BiquadKind::BandPass { center_hz: freq, q },
+                "notch" => BiquadKind::Notch { center_hz: freq, q },
+                "peaking" | "peak" => BiquadKind::Peaking {
+                    center_hz: freq,
+                    q,
+                    gain_db,
+                },
+                "low_shelf" | "lowshelf" => BiquadKind::LowShelf {
+                    cutoff_hz: freq,
+                    q,
+                    gain_db,
+                },
+                "high_shelf" | "highshelf" => BiquadKind::HighShelf {
+                    cutoff_hz: freq,
+                    q,
+                    gain_db,
+                },
+                other => {
+                    return Err(Error::invalid(format!(
+                        "equalizer: unknown band kind {other:?}"
+                    )))
+                }
+            };
+            eq = eq.add_band(bk);
+        }
+    }
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(eq),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "white_noise", "amplitude": 0.5, "seed": 42}` — uniform PRNG.
+fn make_white_noise(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::WhiteNoise;
+    let p = params.as_object();
+    let amplitude = p
+        .and_then(|m| m.get("amplitude"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5) as f32;
+    let seed = p.and_then(|m| m.get("seed")).and_then(|v| v.as_u64());
+    let g = match seed {
+        Some(s) => WhiteNoise::with_seed(amplitude, s),
+        None => WhiteNoise::new(amplitude),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(g),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "pink_noise", "amplitude": 0.5, "seed": 42}` — 1/f Kellet.
+fn make_pink_noise(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::PinkNoise;
+    let p = params.as_object();
+    let amplitude = p
+        .and_then(|m| m.get("amplitude"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5) as f32;
+    let seed = p.and_then(|m| m.get("seed")).and_then(|v| v.as_u64());
+    let g = match seed {
+        Some(s) => PinkNoise::with_seed(amplitude, s),
+        None => PinkNoise::new(amplitude),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(g),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "brown_noise", "amplitude": 0.5, "seed": 42}` — 1/f² leaky.
+fn make_brown_noise(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::BrownNoise;
+    let p = params.as_object();
+    let amplitude = p
+        .and_then(|m| m.get("amplitude"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5) as f32;
+    let seed = p.and_then(|m| m.get("seed")).and_then(|v| v.as_u64());
+    let g = match seed {
+        Some(s) => BrownNoise::with_seed(amplitude, s),
+        None => BrownNoise::new(amplitude),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(g),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "silence_detector", "threshold_dbfs": -60.0, "hold_ms": 100.0}`.
+fn make_silence_detector(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::SilenceDetector;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let det = SilenceDetector::new(
+        get_f64("threshold_dbfs", -60.0) as f32,
+        get_f64("hold_ms", 100.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(det),
         in_port,
         out_port,
     )))

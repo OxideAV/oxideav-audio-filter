@@ -48,42 +48,71 @@
 //!   R128 integrated-loudness measurement (LUFS).
 //! - [`PitchShift`](pitch_shift::PitchShift) — time-domain SOLA-style
 //!   granular pitch shifter (`-12..=+12` semitones, no FFT).
+//! - [`Chorus`](chorus::Chorus) — 1..=4 LFO-modulated short delay taps.
+//! - [`Flanger`](flanger::Flanger) — short-delay comb with positive
+//!   feedback (sweeping resonance).
+//! - [`Phaser`](phaser::Phaser) — N cascaded all-pass sections with
+//!   LFO-modulated cutoffs.
+//! - [`Equalizer`](equalizer::Equalizer) — builder over N [`Biquad`]
+//!   sections in series.
+//! - [`WhiteNoise`](white_noise::WhiteNoise) /
+//!   [`PinkNoise`](pink_noise::PinkNoise) /
+//!   [`BrownNoise`](brown_noise::BrownNoise) — splitmix64-seeded noise
+//!   generators with flat / 1/f / 1/f² spectra.
+//! - [`SilenceDetector`](silence_detector::SilenceDetector) — RMS-based
+//!   silence flag with attack/release envelope + hold.
 
 pub mod biquad;
+pub mod brown_noise;
+pub mod chorus;
 pub mod compressor;
 pub mod dc_blocker;
 pub mod downmix;
 pub mod echo;
+pub mod equalizer;
 pub mod fft;
+pub mod flanger;
 pub mod limiter;
 pub mod loudness;
 pub mod noise_gate;
+pub mod phaser;
+pub mod pink_noise;
 pub mod pitch_shift;
 pub mod registry;
 pub mod resample;
 pub mod reverb;
 pub mod sample_convert;
+pub mod silence_detector;
 pub mod spectrogram;
 pub mod stereo_widener;
 pub mod tremolo;
 pub mod volume;
+pub mod white_noise;
 
 pub use biquad::{Biquad, BiquadKind};
+pub use brown_noise::BrownNoise;
+pub use chorus::Chorus;
 pub use compressor::Compressor;
 pub use dc_blocker::DcBlocker;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
+pub use equalizer::Equalizer;
+pub use flanger::Flanger;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
 pub use noise_gate::NoiseGate;
+pub use phaser::Phaser;
+pub use pink_noise::PinkNoise;
 pub use pitch_shift::PitchShift;
 pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;
 pub use reverb::Reverb;
+pub use silence_detector::SilenceDetector;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use stereo_widener::StereoWidener;
 pub use tremolo::Tremolo;
 pub use volume::Volume;
+pub use white_noise::WhiteNoise;
 
 use oxideav_core::{AudioFrame, Result, SampleFormat};
 
