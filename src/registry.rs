@@ -56,6 +56,15 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("brown_noise", Box::new(make_brown_noise));
     ctx.filters
         .register("silence_detector", Box::new(make_silence_detector));
+    ctx.filters.register("vibrato", Box::new(make_vibrato));
+    ctx.filters.register("auto_pan", Box::new(make_auto_pan));
+    ctx.filters
+        .register("bitcrusher", Box::new(make_bitcrusher));
+    ctx.filters
+        .register("tape_saturation", Box::new(make_tape_saturation));
+    ctx.filters
+        .register("hum_filter", Box::new(make_hum_filter));
+    ctx.filters.register("crossover", Box::new(make_crossover));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -870,6 +879,166 @@ fn make_silence_detector(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn 
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(det),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "vibrato", "rate_hz": 5.0, "depth_ms": 2.0}` — LFO-modulated
+/// delay-line pitch shift.
+fn make_vibrato(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Vibrato;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let v = Vibrato::new(
+        get_f64("rate_hz", 5.0) as f32,
+        get_f64("depth_ms", 2.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(v),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "auto_pan", "rate_hz": 1.5, "depth": 1.0}` — LFO L/R pan.
+fn make_auto_pan(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::AutoPan;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let ap = AutoPan::new(get_f64("rate_hz", 1.5) as f32, get_f64("depth", 1.0) as f32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ap),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "bitcrusher", "bits": 6, "decimation": 4}` — bit-depth +
+/// sample-and-hold rate reduction.
+fn make_bitcrusher(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Bitcrusher;
+    let p = params.as_object();
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let bc = Bitcrusher::new(get_u64("bits", 8) as u8, get_u64("decimation", 1) as u32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(bc),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "tape_saturation", "drive": 2.0, "asymmetry": 0.3}` —
+/// tanh soft-clip with optional asymmetric drive.
+fn make_tape_saturation(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::TapeSaturation;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let ts = TapeSaturation::new(
+        get_f64("drive", 2.0) as f32,
+        get_f64("asymmetry", 0.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ts),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "hum_filter", "fundamental_hz": 60.0, "q": 30.0,
+/// "n_harmonics": 5}` — line-mains hum suppression.
+fn make_hum_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::HumFilter;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let hf = HumFilter::new(
+        get_f64("fundamental_hz", 60.0) as f32,
+        get_f64("q", 30.0) as f32,
+        get_u64("n_harmonics", 5) as u8,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(hf),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "crossover", "cutoff_hz": 1000.0, "q": 0.707}` — two-way
+/// LPF/HPF split; output port carries `2× input channels`.
+fn make_crossover(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Crossover;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let xo = Crossover::new(
+        get_f64("cutoff_hz", 1_000.0) as f32,
+        get_f64("q", std::f64::consts::FRAC_1_SQRT_2) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let (sample_rate, channels, format) = match &in_port.params {
+        PortParams::Audio {
+            sample_rate,
+            channels,
+            format,
+        } => (*sample_rate, *channels, *format),
+        _ => (48_000, 1, SampleFormat::F32),
+    };
+    let out_port = PortSpec::audio("audio", sample_rate, channels * 2, format);
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(xo),
         in_port,
         out_port,
     )))

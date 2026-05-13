@@ -27,6 +27,12 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **equalizer** — builder over N `Biquad` sections in series (low/high-pass, BPF, notch, peaking, shelves)
 - **white_noise** / **pink_noise** / **brown_noise** — splitmix64-seeded generators with flat / 1/f / 1/f² spectra
 - **silence_detector** — pass-through observer with attack/release RMS envelope + hold-threshold flag
+- **vibrato** — LFO-modulated fractional-delay pitch shift (pitch counterpart to `tremolo`)
+- **auto_pan** — LFO-modulated L/R stereo placement (mono-sum conservative pan law)
+- **bitcrusher** — bit-depth quantisation + sample-and-hold rate reduction
+- **tape_saturation** — `tanh` soft-clip waveshaper with asymmetric drive (odd + even harmonics)
+- **hum_filter** — cascaded narrow notches at 50/60 Hz mains fundamental + harmonics
+- **crossover** — two-way LPF/HPF band split (`output channels = 2× input`)
 
 ## Usage
 

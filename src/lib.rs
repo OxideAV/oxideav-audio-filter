@@ -61,17 +61,34 @@
 //!   generators with flat / 1/f / 1/f² spectra.
 //! - [`SilenceDetector`](silence_detector::SilenceDetector) — RMS-based
 //!   silence flag with attack/release envelope + hold.
+//! - [`Vibrato`](vibrato::Vibrato) — LFO-modulated delay-line pitch
+//!   shift (complement to [`Tremolo`](tremolo::Tremolo) which modulates
+//!   amplitude).
+//! - [`AutoPan`](auto_pan::AutoPan) — LFO-modulated L/R stereo
+//!   placement.
+//! - [`Bitcrusher`](bitcrusher::Bitcrusher) — bit-depth quantisation
+//!   plus sample-and-hold rate reduction.
+//! - [`TapeSaturation`](tape_saturation::TapeSaturation) — `tanh`
+//!   soft-clip with asymmetric drive.
+//! - [`HumFilter`](hum_filter::HumFilter) — cascaded narrow notches at
+//!   line-mains fundamental + harmonics.
+//! - [`Crossover`](crossover::Crossover) — two-way LPF/HPF band split
+//!   at a configurable cutoff (output frame carries 2× input channels).
 
+pub mod auto_pan;
 pub mod biquad;
+pub mod bitcrusher;
 pub mod brown_noise;
 pub mod chorus;
 pub mod compressor;
+pub mod crossover;
 pub mod dc_blocker;
 pub mod downmix;
 pub mod echo;
 pub mod equalizer;
 pub mod fft;
 pub mod flanger;
+pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
 pub mod noise_gate;
@@ -85,19 +102,25 @@ pub mod sample_convert;
 pub mod silence_detector;
 pub mod spectrogram;
 pub mod stereo_widener;
+pub mod tape_saturation;
 pub mod tremolo;
+pub mod vibrato;
 pub mod volume;
 pub mod white_noise;
 
+pub use auto_pan::AutoPan;
 pub use biquad::{Biquad, BiquadKind};
+pub use bitcrusher::Bitcrusher;
 pub use brown_noise::BrownNoise;
 pub use chorus::Chorus;
 pub use compressor::Compressor;
+pub use crossover::Crossover;
 pub use dc_blocker::DcBlocker;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
 pub use equalizer::Equalizer;
 pub use flanger::Flanger;
+pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
 pub use noise_gate::NoiseGate;
@@ -110,7 +133,9 @@ pub use reverb::Reverb;
 pub use silence_detector::SilenceDetector;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use stereo_widener::StereoWidener;
+pub use tape_saturation::TapeSaturation;
 pub use tremolo::Tremolo;
+pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use white_noise::WhiteNoise;
 

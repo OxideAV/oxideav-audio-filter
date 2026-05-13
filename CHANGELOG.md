@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 5: six new filter families — `vibrato` (LFO-modulated
+  fractional-delay pitch shift, pitch counterpart to `tremolo`),
+  `auto_pan` (LFO-modulated L/R placement with conservative
+  mono-sum pan law), `bitcrusher` (bit-depth quantisation +
+  sample-and-hold rate reduction), `tape_saturation` (`tanh`
+  soft-clip waveshaper with asymmetric drive — odd + even
+  harmonics), `hum_filter` (cascaded narrow notches at line-mains
+  fundamental + harmonics; `eu_50()` / `us_60()` presets), and
+  `crossover` (two-way LPF/HPF Butterworth-2 band split; output
+  frame carries `2× input channels` with low band first, high
+  band second). All six registered in `registry::register` and
+  wired through the standard `AudioFilter` contract.
 - round 4: eight new filter families — `chorus` (1..=4 LFO-modulated
   short delay taps with per-voice phase offsets), `flanger` (short-delay
   feedback comb with swept resonance, 1..=15 ms), `phaser` (N=2..=12
