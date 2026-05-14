@@ -65,6 +65,15 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("hum_filter", Box::new(make_hum_filter));
     ctx.filters.register("crossover", Box::new(make_crossover));
+    ctx.filters.register("mid_side", Box::new(make_mid_side));
+    ctx.filters
+        .register("envelope_follower", Box::new(make_envelope_follower));
+    ctx.filters.register("de_esser", Box::new(make_de_esser));
+    ctx.filters.register("wah", Box::new(make_wah));
+    ctx.filters
+        .register("octave_doubler", Box::new(make_octave_doubler));
+    ctx.filters
+        .register("adaptive_noise_gate", Box::new(make_adaptive_noise_gate));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1039,6 +1048,180 @@ fn make_crossover(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamF
     let out_port = PortSpec::audio("audio", sample_rate, channels * 2, format);
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(xo),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "mid_side", "mode": "encode"}` — L/R ↔ M/S transcoder.
+/// `mode` is `"encode"` (L/R → M/S, default) or `"decode"` (M/S → L/R).
+fn make_mid_side(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::MidSide;
+    let p = params.as_object();
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let ms = match get_str("mode") {
+        Some("decode") | Some("ms_to_lr") => MidSide::decoder(),
+        _ => MidSide::encoder(),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ms),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "envelope_follower", "attack_ms": 5.0, "release_ms": 50.0,
+/// "mode": "peak"}` — amplitude-envelope detector (pass-through).
+fn make_envelope_follower(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{EnvelopeFollower, EnvelopeMode};
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let mode = match get_str("mode") {
+        Some("rms") => EnvelopeMode::Rms,
+        _ => EnvelopeMode::Peak,
+    };
+    let ef = EnvelopeFollower::with_mode(
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 50.0) as f32,
+        mode,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ef),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "de_esser", "cutoff_hz": 6000.0, "threshold_db": -20.0,
+/// "ratio": 4.0, "attack_ms": 1.0, "release_ms": 30.0}` — split-band
+/// downward compressor targeting sibilance.
+fn make_de_esser(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::DeEsser;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let de = DeEsser::with(
+        get_f64("cutoff_hz", 6_000.0) as f32,
+        get_f64("threshold_db", -20.0) as f32,
+        get_f64("ratio", 4.0) as f32,
+        get_f64("attack_ms", 1.0) as f32,
+        get_f64("release_ms", 30.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(de),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "wah", "rate_hz": 0.8, "f_min": 400.0, "f_max": 2200.0,
+/// "q": 2.5, "mix": 1.0}` — LFO-swept resonant band-pass.
+fn make_wah(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Wah;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let w = Wah::with(
+        get_f64("rate_hz", 0.8) as f32,
+        get_f64("f_min", 400.0) as f32,
+        get_f64("f_max", 2_200.0) as f32,
+        get_f64("q", 2.5) as f32,
+        get_f64("mix", 1.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(w),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "octave_doubler", "dry": 1.0, "wet": 0.5,
+/// "dc_block": true}` — full-wave rectifier + DC block.
+fn make_octave_doubler(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::OctaveDoubler;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_bool = |k: &str, dflt: bool| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(dflt)
+    };
+    let od = OctaveDoubler::with(
+        get_f64("dry", 1.0) as f32,
+        get_f64("wet", 0.5) as f32,
+        get_bool("dc_block", true),
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(od),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "adaptive_noise_gate", "margin_db": 12.0, "learn_ms": 2000.0,
+/// "attack_ms": 5.0, "release_ms": 100.0}` — adaptive gate with learned
+/// noise floor.
+fn make_adaptive_noise_gate(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::AdaptiveNoiseGate;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let g = AdaptiveNoiseGate::with(
+        get_f64("margin_db", 12.0) as f32,
+        get_f64("learn_ms", 2_000.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 100.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(g),
         in_port,
         out_port,
     )))

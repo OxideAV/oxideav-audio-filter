@@ -74,7 +74,23 @@
 //!   line-mains fundamental + harmonics.
 //! - [`Crossover`](crossover::Crossover) — two-way LPF/HPF band split
 //!   at a configurable cutoff (output frame carries 2× input channels).
+//! - [`MidSide`](mid_side::MidSide) — explicit L/R ↔ M/S transcoder
+//!   (stateless, exact roundtrip).
+//! - [`EnvelopeFollower`](envelope_follower::EnvelopeFollower) — peak
+//!   / RMS amplitude envelope detector (pass-through, observe via
+//!   `current()` / `current_db()`).
+//! - [`DeEsser`](de_esser::DeEsser) — split-band downward compressor
+//!   targeting sibilance (LPF/HPF + per-band compressor on the high
+//!   half).
+//! - [`Wah`](wah::Wah) — LFO-swept resonant band-pass (Cry-Baby-style
+//!   sweep, logarithmic centre interpolation).
+//! - [`OctaveDoubler`](octave_doubler::OctaveDoubler) — full-wave-
+//!   rectifier-based octave-up layer (Octavia-style), DC-blocked.
+//! - [`AdaptiveNoiseGate`](adaptive_noise_gate::AdaptiveNoiseGate) —
+//!   gate with a self-learned noise floor (slow one-pole learner +
+//!   margin-based open/close decision).
 
+pub mod adaptive_noise_gate;
 pub mod auto_pan;
 pub mod biquad;
 pub mod bitcrusher;
@@ -83,15 +99,19 @@ pub mod chorus;
 pub mod compressor;
 pub mod crossover;
 pub mod dc_blocker;
+pub mod de_esser;
 pub mod downmix;
 pub mod echo;
+pub mod envelope_follower;
 pub mod equalizer;
 pub mod fft;
 pub mod flanger;
 pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
+pub mod mid_side;
 pub mod noise_gate;
+pub mod octave_doubler;
 pub mod phaser;
 pub mod pink_noise;
 pub mod pitch_shift;
@@ -106,8 +126,10 @@ pub mod tape_saturation;
 pub mod tremolo;
 pub mod vibrato;
 pub mod volume;
+pub mod wah;
 pub mod white_noise;
 
+pub use adaptive_noise_gate::AdaptiveNoiseGate;
 pub use auto_pan::AutoPan;
 pub use biquad::{Biquad, BiquadKind};
 pub use bitcrusher::Bitcrusher;
@@ -116,14 +138,18 @@ pub use chorus::Chorus;
 pub use compressor::Compressor;
 pub use crossover::Crossover;
 pub use dc_blocker::DcBlocker;
+pub use de_esser::DeEsser;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
+pub use envelope_follower::{EnvelopeFollower, EnvelopeMode};
 pub use equalizer::Equalizer;
 pub use flanger::Flanger;
 pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
+pub use mid_side::{MidSide, MidSideMode};
 pub use noise_gate::NoiseGate;
+pub use octave_doubler::OctaveDoubler;
 pub use phaser::Phaser;
 pub use pink_noise::PinkNoise;
 pub use pitch_shift::PitchShift;
@@ -137,6 +163,7 @@ pub use tape_saturation::TapeSaturation;
 pub use tremolo::Tremolo;
 pub use vibrato::Vibrato;
 pub use volume::Volume;
+pub use wah::Wah;
 pub use white_noise::WhiteNoise;
 
 use oxideav_core::{AudioFrame, Result, SampleFormat};

@@ -33,6 +33,12 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **tape_saturation** — `tanh` soft-clip waveshaper with asymmetric drive (odd + even harmonics)
 - **hum_filter** — cascaded narrow notches at 50/60 Hz mains fundamental + harmonics
 - **crossover** — two-way LPF/HPF band split (`output channels = 2× input`)
+- **mid_side** — explicit L/R ↔ M/S transcoder (stateless, exact roundtrip)
+- **envelope_follower** — peak / RMS amplitude envelope detector (pass-through, observe via API)
+- **de_esser** — split-band downward compressor targeting sibilance
+- **wah** — LFO-swept resonant band-pass (Cry-Baby-style log sweep)
+- **octave_doubler** — Octavia-style full-wave-rectifier octave-up layer with DC block
+- **adaptive_noise_gate** — gate with self-learned asymmetric noise floor
 
 ## Usage
 

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 6: six new filter families — `mid_side` (explicit L/R ↔ M/S
+  transcoder, stateless `M = (L+R)/2 / S = (L-R)/2` with bit-exact
+  roundtrip), `envelope_follower` (one-pole peak / RMS amplitude
+  detector, pass-through with `current()` / `current_db()` query
+  hooks), `de_esser` (split-band downward compressor: LPF/HPF
+  Butterworth pair at the configurable split point + per-band peak
+  detector + hard-knee compression curve on the high band only),
+  `wah` (Cry-Baby-style LFO-swept resonant band-pass with
+  logarithmic centre interpolation between `f_min` and `f_max`),
+  `octave_doubler` (Tycobrahe-Octavia-style full-wave-rectifier
+  octave-up layer with one-pole DC block on the rectified path),
+  and `adaptive_noise_gate` (self-learning noise gate with
+  asymmetric one-pole floor tracker — 64× faster downward than
+  upward — driving a margin-thresholded open/close decision). All
+  six registered in `registry::register` and wired through the
+  standard `AudioFilter` contract.
 - round 5: six new filter families — `vibrato` (LFO-modulated
   fractional-delay pitch shift, pitch counterpart to `tremolo`),
   `auto_pan` (LFO-modulated L/R placement with conservative
