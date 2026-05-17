@@ -39,6 +39,10 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **wah** — LFO-swept resonant band-pass (Cry-Baby-style log sweep)
 - **octave_doubler** — Octavia-style full-wave-rectifier octave-up layer with DC block
 - **adaptive_noise_gate** — gate with self-learned asymmetric noise floor
+- **exciter** — high-band `tanh` saturation enhancer (HPF + dry mix; adds "air" without raising broadband level)
+- **multiband_compressor** — three-band (low / mid / high) independent compression with Butterworth-2 crossovers (default 250 Hz / 2500 Hz)
+- **stereo_imager** — frequency-dependent stereo width via M/S side split (mono bass + wide treble preset)
+- **talkbox** — LFO-morphed parallel formant band-pass bank (vowel filter, 6 vowels, no FFT)
 
 ## Usage
 

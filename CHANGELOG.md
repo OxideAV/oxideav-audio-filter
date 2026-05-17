@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 72: four new filter families — `exciter` (HPF +
+  `tanh(k·x)/tanh(k)` waveshaper added on top of the dry signal;
+  the saturator generates harmonics in the high band only and is
+  drive-normalised so peak gain stays bounded), `multiband_compressor`
+  (three-band Low/Mid/High parallel Butterworth-2 split at 250 Hz +
+  2500 Hz with an independent `Compressor` per band — each band's
+  `threshold / ratio / attack / release / knee / makeup` is
+  configurable via `BandSettings`), `stereo_imager` (frequency-
+  dependent stereo widener: M/S encode, split the side channel into
+  low + high bands with two Butterworth-2 biquads, apply different
+  width multipliers per band, recombine — classic "mono bass + wide
+  treble" mastering preset), and `talkbox` (LFO-morphed parallel
+  formant band-pass bank: 6 vowel presets `{Ah, Eh, Ee, Oh, Oo, Uh}`
+  with two formants each from the Hillenbrand dataset, log-frequency
+  interpolation between `from` and `to` vowels driven by a sine LFO,
+  Q≈8 BPF realisation — no carrier required, no FFT). All four
+  registered in `registry::register` and wired through the standard
+  `AudioFilter` contract.
 - round 6: six new filter families — `mid_side` (explicit L/R ↔ M/S
   transcoder, stateless `M = (L+R)/2 / S = (L-R)/2` with bit-exact
   roundtrip), `envelope_follower` (one-pole peak / RMS amplitude

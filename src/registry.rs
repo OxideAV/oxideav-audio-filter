@@ -74,6 +74,12 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("octave_doubler", Box::new(make_octave_doubler));
     ctx.filters
         .register("adaptive_noise_gate", Box::new(make_adaptive_noise_gate));
+    ctx.filters.register("exciter", Box::new(make_exciter));
+    ctx.filters
+        .register("multiband_compressor", Box::new(make_multiband_compressor));
+    ctx.filters
+        .register("stereo_imager", Box::new(make_stereo_imager));
+    ctx.filters.register("talkbox", Box::new(make_talkbox));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1222,6 +1228,154 @@ fn make_adaptive_noise_gate(params: &Value, inputs: &[PortSpec]) -> Result<Box<d
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(g),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "exciter", "cutoff_hz": 4000.0, "drive": 3.0,
+/// "mix": 0.4}` — high-band saturation enhancer.
+fn make_exciter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Exciter;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let ex = Exciter::with(
+        get_f64("cutoff_hz", 4_000.0) as f32,
+        get_f64("drive", 3.0) as f32,
+        get_f64("mix", 0.4) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ex),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "multiband_compressor", "low_cutoff_hz": 250.0,
+/// "high_cutoff_hz": 2500.0, "low": {…}, "mid": {…}, "high": {…}}`.
+/// Each band table accepts the standard
+/// `threshold_db / ratio / attack_ms / release_ms / knee_db /
+/// makeup_gain_db` keys; omitted fields fall back to
+/// [`BandSettings::default_low`] / `default_mid` / `default_high`.
+fn make_multiband_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::multiband_compressor::{BandSettings, MultibandCompressor};
+
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let band = |key: &str, base: BandSettings| -> BandSettings {
+        let obj = params.get(key).and_then(|v| v.as_object());
+        let g = |k: &str, dflt: f32| -> f32 {
+            obj.and_then(|m| m.get(k))
+                .and_then(|v| v.as_f64())
+                .map(|x| x as f32)
+                .unwrap_or(dflt)
+        };
+        BandSettings {
+            threshold_db: g("threshold_db", base.threshold_db),
+            ratio: g("ratio", base.ratio),
+            attack_ms: g("attack_ms", base.attack_ms),
+            release_ms: g("release_ms", base.release_ms),
+            knee_db: g("knee_db", base.knee_db),
+            makeup_gain_db: g("makeup_gain_db", base.makeup_gain_db),
+        }
+    };
+    let mbc = MultibandCompressor::with(
+        get_f64("low_cutoff_hz", 250.0) as f32,
+        get_f64("high_cutoff_hz", 2_500.0) as f32,
+        band("low", BandSettings::default_low()),
+        band("mid", BandSettings::default_mid()),
+        band("high", BandSettings::default_high()),
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(mbc),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "stereo_imager", "cutoff_hz": 250.0, "low_width": 0.0,
+/// "high_width": 1.5}` — band-split M/S widener.
+fn make_stereo_imager(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::StereoImager;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let im = StereoImager::with(
+        get_f64("cutoff_hz", 250.0) as f32,
+        get_f64("low_width", 0.0) as f32,
+        get_f64("high_width", 1.5) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(im),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "talkbox", "from": "ah", "to": "ee", "rate_hz": 0.5,
+/// "q": 8.0, "mix": 1.0}` — LFO-morphed vowel formant filter.
+fn make_talkbox(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::talkbox::{Talkbox, Vowel};
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let parse_vowel = |name: Option<&str>, dflt: Vowel| -> Vowel {
+        match name.map(|s| s.to_ascii_lowercase()) {
+            Some(ref s) if s == "ah" || s == "a" => Vowel::Ah,
+            Some(ref s) if s == "eh" || s == "e" => Vowel::Eh,
+            Some(ref s) if s == "ee" || s == "i" => Vowel::Ee,
+            Some(ref s) if s == "oh" || s == "o" => Vowel::Oh,
+            Some(ref s) if s == "oo" || s == "u" => Vowel::Oo,
+            Some(ref s) if s == "uh" => Vowel::Uh,
+            _ => dflt,
+        }
+    };
+    let from = parse_vowel(get_str("from"), Vowel::Ah);
+    let to = parse_vowel(get_str("to"), Vowel::Ee);
+    let tb = Talkbox::with(
+        from,
+        to,
+        get_f64("rate_hz", 0.5) as f32,
+        get_f64("q", 8.0) as f32,
+        get_f64("mix", 1.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(tb),
         in_port,
         out_port,
     )))

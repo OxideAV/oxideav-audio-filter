@@ -89,6 +89,16 @@
 //! - [`AdaptiveNoiseGate`](adaptive_noise_gate::AdaptiveNoiseGate) —
 //!   gate with a self-learned noise floor (slow one-pole learner +
 //!   margin-based open/close decision).
+//! - [`Exciter`](exciter::Exciter) — high-band saturation
+//!   psycho-acoustic enhancer (HPF + `tanh` waveshaper, dry-mixed).
+//! - [`MultibandCompressor`](multiband_compressor::MultibandCompressor) —
+//!   three-band (low / mid / high) independent compression with
+//!   Butterworth-2 crossovers.
+//! - [`StereoImager`](stereo_imager::StereoImager) — frequency-
+//!   dependent stereo width (M/S side split into two bands with
+//!   independent width factors).
+//! - [`Talkbox`](talkbox::Talkbox) — LFO-morphed parallel formant
+//!   band-pass bank (vowel filter, no carrier required).
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -104,12 +114,14 @@ pub mod downmix;
 pub mod echo;
 pub mod envelope_follower;
 pub mod equalizer;
+pub mod exciter;
 pub mod fft;
 pub mod flanger;
 pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
 pub mod mid_side;
+pub mod multiband_compressor;
 pub mod noise_gate;
 pub mod octave_doubler;
 pub mod phaser;
@@ -121,7 +133,9 @@ pub mod reverb;
 pub mod sample_convert;
 pub mod silence_detector;
 pub mod spectrogram;
+pub mod stereo_imager;
 pub mod stereo_widener;
+pub mod talkbox;
 pub mod tape_saturation;
 pub mod tremolo;
 pub mod vibrato;
@@ -143,11 +157,13 @@ pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use echo::Echo;
 pub use envelope_follower::{EnvelopeFollower, EnvelopeMode};
 pub use equalizer::Equalizer;
+pub use exciter::Exciter;
 pub use flanger::Flanger;
 pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
 pub use mid_side::{MidSide, MidSideMode};
+pub use multiband_compressor::{BandSettings, MultibandCompressor};
 pub use noise_gate::NoiseGate;
 pub use octave_doubler::OctaveDoubler;
 pub use phaser::Phaser;
@@ -158,7 +174,9 @@ pub use resample::Resample;
 pub use reverb::Reverb;
 pub use silence_detector::SilenceDetector;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
+pub use stereo_imager::StereoImager;
 pub use stereo_widener::StereoWidener;
+pub use talkbox::{Talkbox, Vowel};
 pub use tape_saturation::TapeSaturation;
 pub use tremolo::Tremolo;
 pub use vibrato::Vibrato;
