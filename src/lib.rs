@@ -99,6 +99,14 @@
 //!   independent width factors).
 //! - [`Talkbox`](talkbox::Talkbox) — LFO-morphed parallel formant
 //!   band-pass bank (vowel filter, no carrier required).
+//! - [`TransientDesigner`](transient_designer::TransientDesigner) —
+//!   two-envelope (fast / slow) attack + sustain shaper.
+//! - [`Ducker`](ducker::Ducker) — internally-keyed sidechain
+//!   compressor with safety-floored gain reduction.
+//! - [`GainNormalizer`](gain_normalizer::GainNormalizer) — slow-AGC
+//!   programme-level normaliser with silence-freeze integrator.
+//! - [`FreqShifter`](freq_shifter::FreqShifter) — Hilbert-FIR SSB
+//!   frequency shifter (additive `Δf` in Hz, harmonic-destroying).
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -111,12 +119,15 @@ pub mod crossover;
 pub mod dc_blocker;
 pub mod de_esser;
 pub mod downmix;
+pub mod ducker;
 pub mod echo;
 pub mod envelope_follower;
 pub mod equalizer;
 pub mod exciter;
 pub mod fft;
 pub mod flanger;
+pub mod freq_shifter;
+pub mod gain_normalizer;
 pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
@@ -137,6 +148,7 @@ pub mod stereo_imager;
 pub mod stereo_widener;
 pub mod talkbox;
 pub mod tape_saturation;
+pub mod transient_designer;
 pub mod tremolo;
 pub mod vibrato;
 pub mod volume;
@@ -154,11 +166,14 @@ pub use crossover::Crossover;
 pub use dc_blocker::DcBlocker;
 pub use de_esser::DeEsser;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
+pub use ducker::Ducker;
 pub use echo::Echo;
 pub use envelope_follower::{EnvelopeFollower, EnvelopeMode};
 pub use equalizer::Equalizer;
 pub use exciter::Exciter;
 pub use flanger::Flanger;
+pub use freq_shifter::FreqShifter;
+pub use gain_normalizer::GainNormalizer;
 pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
@@ -178,6 +193,7 @@ pub use stereo_imager::StereoImager;
 pub use stereo_widener::StereoWidener;
 pub use talkbox::{Talkbox, Vowel};
 pub use tape_saturation::TapeSaturation;
+pub use transient_designer::TransientDesigner;
 pub use tremolo::Tremolo;
 pub use vibrato::Vibrato;
 pub use volume::Volume;

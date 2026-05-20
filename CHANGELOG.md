@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 81: four new filter families — `transient_designer`
+  (two-envelope fast/slow detector — `α = 1 − exp(−1/(τ·fₛ))` —
+  with attack-factor `max(0, env_fast − env_slow)/env_slow` and
+  sustain-factor `max(0, env_slow − env_fast)/env_slow` driving the
+  per-sample gain; SPL-Transient-Designer-style time constants:
+  1 ms fast / 35 ms slow with 10× release; gain clamped to `[0, 8]`),
+  `ducker` (internally-keyed sidechain compressor: fast 1 ms detector
+  + dB-domain static curve with slope `(ratio − 1)/ratio` + separate
+  attack/release gain trajectory + safety-floored `max_reduction_db`
+  — broadcast voice-over duck; optional `key_channel` to key off a
+  single channel), `gain_normalizer` (slow programme-level AGC: long-
+  window RMS² detector → dB-domain error → smoothed gain trajectory
+  with `max_gain_db` / `max_atten_db` clamps and silence-freeze
+  integrator to prevent wind-up during pauses), and `freq_shifter`
+  (true single-sideband Hilbert-FIR frequency shifter: windowed-sinc
+  Hilbert kernel `h[n] = 2/(π·n) · blackman[n]` for odd `n`, zero
+  taps for even `n`; per-channel ring buffer + SSB combine
+  `y = r·cos(ωΔ·t) − q·sin(ωΔ·t)` — adds a constant `Δf` in Hz to
+  every spectral component, harmonic-destroying ring-mod-style
+  effect). All four registered in `registry::register` and wired
+  through the standard `AudioFilter` contract.
 - round 72: four new filter families — `exciter` (HPF +
   `tanh(k·x)/tanh(k)` waveshaper added on top of the dry signal;
   the saturator generates harmonics in the high band only and is

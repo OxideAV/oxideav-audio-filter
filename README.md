@@ -43,6 +43,10 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **multiband_compressor** — three-band (low / mid / high) independent compression with Butterworth-2 crossovers (default 250 Hz / 2500 Hz)
 - **stereo_imager** — frequency-dependent stereo width via M/S side split (mono bass + wide treble preset)
 - **talkbox** — LFO-morphed parallel formant band-pass bank (vowel filter, 6 vowels, no FFT)
+- **transient_designer** — two-envelope (fast vs slow) attack + sustain shaper (`attack`/`sustain ∈ [-1, +1]`)
+- **ducker** — internally-keyed sidechain compressor with safety-floored gain reduction (broadcast voice-over duck)
+- **gain_normalizer** — slow programme-level AGC with silence-freeze integrator (`target_db`, default ~1 s response)
+- **freq_shifter** — Hilbert-FIR SSB frequency shifter (additive `Δf` in Hz, harmonic-destroying)
 
 ## Usage
 

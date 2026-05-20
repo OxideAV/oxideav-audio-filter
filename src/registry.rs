@@ -80,6 +80,13 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("stereo_imager", Box::new(make_stereo_imager));
     ctx.filters.register("talkbox", Box::new(make_talkbox));
+    ctx.filters
+        .register("transient_designer", Box::new(make_transient_designer));
+    ctx.filters.register("ducker", Box::new(make_ducker));
+    ctx.filters
+        .register("gain_normalizer", Box::new(make_gain_normalizer));
+    ctx.filters
+        .register("freq_shifter", Box::new(make_freq_shifter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1376,6 +1383,151 @@ fn make_talkbox(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFil
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(tb),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "transient_designer", "attack": 0.5, "sustain": 0.0,
+/// "attack_ms_fast": 1.0, "attack_ms_slow": 35.0}` — two-envelope
+/// attack/sustain shaper.
+fn make_transient_designer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::TransientDesigner;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let td = TransientDesigner::with(
+        get_f64("attack", 0.0) as f32,
+        get_f64("sustain", 0.0) as f32,
+        get_f64("attack_ms_fast", 1.0) as f32,
+        get_f64("attack_ms_slow", 35.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(td),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "ducker", "threshold_db": -20.0, "ratio": 8.0,
+/// "attack_ms": 5.0, "release_ms": 250.0, "max_reduction_db": -30.0,
+/// "key_channel": null}` — internally-keyed sidechain compressor.
+fn make_ducker(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Ducker;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_u64());
+    let mut d = Ducker::with(
+        get_f64("threshold_db", -20.0) as f32,
+        get_f64("ratio", 8.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 250.0) as f32,
+    );
+    if let Some(mr) = p
+        .and_then(|m| m.get("max_reduction_db"))
+        .and_then(|v| v.as_f64())
+    {
+        d = d.with_max_reduction_db(mr as f32);
+    }
+    if let Some(kc) = get_u64("key_channel") {
+        d = d.with_key_channel(Some(kc as usize));
+    }
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(d),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "gain_normalizer", "target_db": -16.0, "detector_ms": 500.0,
+/// "gain_ms": 200.0, "max_gain_db": 24.0, "max_atten_db": -24.0,
+/// "silence_threshold_db": -60.0}` — slow AGC programme-level normaliser.
+fn make_gain_normalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::GainNormalizer;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let mut a = GainNormalizer::with(
+        get_f64("target_db", -16.0) as f32,
+        get_f64("detector_ms", 500.0) as f32,
+        get_f64("gain_ms", 200.0) as f32,
+    );
+    if let Some(v) = p
+        .and_then(|m| m.get("max_gain_db"))
+        .and_then(|v| v.as_f64())
+    {
+        a = a.with_max_gain_db(v as f32);
+    }
+    if let Some(v) = p
+        .and_then(|m| m.get("max_atten_db"))
+        .and_then(|v| v.as_f64())
+    {
+        a = a.with_max_atten_db(v as f32);
+    }
+    if let Some(v) = p
+        .and_then(|m| m.get("silence_threshold_db"))
+        .and_then(|v| v.as_f64())
+    {
+        a = a.with_silence_threshold_db(v as f32);
+    }
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(a),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "freq_shifter", "delta_hz": 100.0, "half_taps": 63}` —
+/// Hilbert-FIR SSB frequency shifter.
+fn make_freq_shifter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::FreqShifter;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let fs = FreqShifter::with(
+        get_f64("delta_hz", 100.0) as f32,
+        get_u64("half_taps", 63) as usize,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(fs),
         in_port,
         out_port,
     )))
