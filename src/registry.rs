@@ -87,6 +87,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("gain_normalizer", Box::new(make_gain_normalizer));
     ctx.filters
         .register("freq_shifter", Box::new(make_freq_shifter));
+    ctx.filters
+        .register("ring_modulator", Box::new(make_ring_modulator));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1528,6 +1530,33 @@ fn make_freq_shifter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stre
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(fs),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "ring_modulator", "carrier_hz": 440.0, "mix": 1.0}` —
+/// sine-carrier double-sideband suppressed-carrier amplitude modulator
+/// (Dalek / bell effect for audible carriers).
+fn make_ring_modulator(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::RingModulator;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let rm = RingModulator::new(
+        get_f64("carrier_hz", 440.0) as f32,
+        get_f64("mix", 1.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(rm),
         in_port,
         out_port,
     )))

@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 92: one new filter family — `ring_modulator` (sine-carrier
+  double-sideband suppressed-carrier amplitude multiplier; the
+  product-to-sum identity `sin(2π f t) · cos(2π fc t) =
+  ½·[sin(2π(f+fc)t) + sin(2π(f−fc)t)]` shows a single input tone is
+  mapped to mirror sidebands at `|f − fc|` and `f + fc` of half
+  amplitude each, with the carrier itself suppressed because a full
+  period of `cos(2π fc t)` has zero mean. `f64` phase accumulator
+  preserves precision across long streams; phase wraps to `[0, 2π)`
+  per sample. `mix = 0` is a bit-exact bypass; `carrier_hz = 0`
+  reduces the carrier to `cos(0) = 1` so output equals input.
+  Registered in `registry::register` as `"ring_modulator"` and
+  wired through the standard `AudioFilter` contract). Distinct
+  from `tremolo` (sub-audible LFO; same DSP but audibly different
+  because `fc < 20 Hz`) and `freq_shifter` (Hilbert-FIR SSB shifter
+  that cancels the lower sideband). 9 hand-derived unit tests
+  (carrier-shape match against `cos(n·π/4)` at fs=8 kHz fc=1 kHz,
+  half-mix dry/wet superposition, streaming continuity across
+  successive `process` calls, stereo phase coherence, zero-mean
+  over one carrier period, parameter clamping).
 - round 81: four new filter families — `transient_designer`
   (two-envelope fast/slow detector — `α = 1 − exp(−1/(τ·fₛ))` —
   with attack-factor `max(0, env_fast − env_slow)/env_slow` and

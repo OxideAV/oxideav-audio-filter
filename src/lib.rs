@@ -107,6 +107,9 @@
 //!   programme-level normaliser with silence-freeze integrator.
 //! - [`FreqShifter`](freq_shifter::FreqShifter) — Hilbert-FIR SSB
 //!   frequency shifter (additive `Δf` in Hz, harmonic-destroying).
+//! - [`RingModulator`](ring_modulator::RingModulator) — sine-carrier
+//!   amplitude multiplication (double-sideband suppressed-carrier AM:
+//!   `y = x · cos(2π·fc·n/fs)`, audible-carrier Dalek / bell effect).
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -141,6 +144,7 @@ pub mod pitch_shift;
 pub mod registry;
 pub mod resample;
 pub mod reverb;
+pub mod ring_modulator;
 pub mod sample_convert;
 pub mod silence_detector;
 pub mod spectrogram;
@@ -187,6 +191,7 @@ pub use pitch_shift::PitchShift;
 pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;
 pub use reverb::Reverb;
+pub use ring_modulator::RingModulator;
 pub use silence_detector::SilenceDetector;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use stereo_imager::StereoImager;
