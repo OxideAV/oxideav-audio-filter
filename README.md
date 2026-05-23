@@ -48,6 +48,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **gain_normalizer** — slow programme-level AGC with silence-freeze integrator (`target_db`, default ~1 s response)
 - **freq_shifter** — Hilbert-FIR SSB frequency shifter (additive `Δf` in Hz, harmonic-destroying)
 - **ring_modulator** — sine-carrier double-sideband suppressed-carrier AM (`y = x · cos(2π·fc·n/fs)`, audible carrier; produces mirror sidebands at `f ± fc`, Dalek / bell timbre)
+- **hard_clipper** — memoryless symmetric clipping distortion (`y = clamp(drive·x, ±ceiling)`; odd-harmonic fuzz / overdrive, distinct from the `tanh` soft-clip of `tape_saturation`)
 
 ## Usage
 

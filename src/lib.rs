@@ -110,6 +110,10 @@
 //! - [`RingModulator`](ring_modulator::RingModulator) — sine-carrier
 //!   amplitude multiplication (double-sideband suppressed-carrier AM:
 //!   `y = x · cos(2π·fc·n/fs)`, audible-carrier Dalek / bell effect).
+//! - [`HardClipper`](hard_clipper::HardClipper) — memoryless symmetric
+//!   clipping distortion (`y = clamp(drive·x, -ceiling, +ceiling)`;
+//!   odd-harmonic fuzz / overdrive, distinct from the `tanh` soft-clip
+//!   in [`TapeSaturation`](tape_saturation::TapeSaturation)).
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -131,6 +135,7 @@ pub mod fft;
 pub mod flanger;
 pub mod freq_shifter;
 pub mod gain_normalizer;
+pub mod hard_clipper;
 pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
@@ -178,6 +183,7 @@ pub use exciter::Exciter;
 pub use flanger::Flanger;
 pub use freq_shifter::FreqShifter;
 pub use gain_normalizer::GainNormalizer;
+pub use hard_clipper::HardClipper;
 pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;

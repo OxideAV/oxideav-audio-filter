@@ -89,6 +89,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("freq_shifter", Box::new(make_freq_shifter));
     ctx.filters
         .register("ring_modulator", Box::new(make_ring_modulator));
+    ctx.filters
+        .register("hard_clipper", Box::new(make_hard_clipper));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1557,6 +1559,30 @@ fn make_ring_modulator(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn St
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(rm),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "hard_clipper", "drive": 2.0, "ceiling": 1.0}` —
+/// memoryless symmetric clipping distortion
+/// (`y = clamp(drive·x, -ceiling, +ceiling)`; odd-harmonic fuzz).
+fn make_hard_clipper(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::HardClipper;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let hc = HardClipper::new(get_f64("drive", 1.0) as f32, get_f64("ceiling", 1.0) as f32);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(hc),
         in_port,
         out_port,
     )))

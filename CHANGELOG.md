@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 101: one new filter family — `hard_clipper` (memoryless
+  symmetric clipping distortion: `y = clamp(drive·x, -ceiling,
+  +ceiling)`). The transfer curve is piecewise linear with slope
+  `drive` inside `|drive·x| ≤ ceiling` and flat `±ceiling` rails
+  beyond, so it generates strong odd harmonics — the classic
+  fuzz / overdrive timbre, and the limiting case approximates a
+  square wave. Symmetric clipping is an odd function `f(-x) =
+  -f(x)`, so a full-period sine yields zero-mean output (no even
+  harmonics, no DC). Distinct from `volume` (gain then a *fixed*
+  `±1.0` clip) because the ceiling is a separate configurable knob
+  and drive is applied *before* the clamp; distinct from
+  `tape_saturation` (smooth `tanh` knee → soft saturation). Stateless
+  / memoryless: no state across samples or channels. `drive` clamped
+  to `[0, 64]`, `ceiling` clamped to `[1e-6, 1.0]` (kept strictly
+  positive so the curve never collapses to constant zero). Registered
+  in `registry::register` as `"hard_clipper"` and wired through the
+  standard `AudioFilter` contract. 7 hand-derived unit tests
+  (closed-form transfer-curve match for drive=2 / custom-ceiling
+  clamp / unity pass-through / output-bounded-by-ceiling with
+  rail-reached check / symmetric-clip zero DC / stereo channel
+  independence / parameter clamping).
 - round 92: one new filter family — `ring_modulator` (sine-carrier
   double-sideband suppressed-carrier amplitude multiplier; the
   product-to-sum identity `sin(2π f t) · cos(2π fc t) =
