@@ -114,6 +114,11 @@
 //!   clipping distortion (`y = clamp(drive·x, -ceiling, +ceiling)`;
 //!   odd-harmonic fuzz / overdrive, distinct from the `tanh` soft-clip
 //!   in [`TapeSaturation`](tape_saturation::TapeSaturation)).
+//! - [`SlewLimiter`](slew_limiter::SlewLimiter) — slope-limited smoother
+//!   that bounds the per-sample amplitude change to `max_slew_per_sec
+//!   / fs`. Linear-ramp response (vs the LPF's exponential response);
+//!   classic anti-zipper / portamento / anti-pop primitive. Supports
+//!   asymmetric rise / fall caps.
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -152,6 +157,7 @@ pub mod reverb;
 pub mod ring_modulator;
 pub mod sample_convert;
 pub mod silence_detector;
+pub mod slew_limiter;
 pub mod spectrogram;
 pub mod stereo_imager;
 pub mod stereo_widener;
@@ -199,6 +205,7 @@ pub use resample::Resample;
 pub use reverb::Reverb;
 pub use ring_modulator::RingModulator;
 pub use silence_detector::SilenceDetector;
+pub use slew_limiter::SlewLimiter;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use stereo_imager::StereoImager;
 pub use stereo_widener::StereoWidener;

@@ -91,6 +91,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("ring_modulator", Box::new(make_ring_modulator));
     ctx.filters
         .register("hard_clipper", Box::new(make_hard_clipper));
+    ctx.filters
+        .register("slew_limiter", Box::new(make_slew_limiter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1583,6 +1585,44 @@ fn make_hard_clipper(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stre
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(hc),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "slew_limiter", "max_slew_per_sec": 2.0}` for the
+/// symmetric form, or `{"filter": "slew_limiter", "slew_up_per_sec":
+/// 10.0, "slew_dn_per_sec": 1.0, "initial": 0.0}` for the asymmetric
+/// form — bounds the per-sample output change to `max_slew_per_sec /
+/// fs`; linear-ramp anti-zipper / portamento smoother.
+fn make_slew_limiter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::SlewLimiter;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    // Prefer asymmetric spec when *either* axis-specific key is given;
+    // otherwise fall back to the symmetric `max_slew_per_sec`.
+    let has_up = p.and_then(|m| m.get("slew_up_per_sec")).is_some();
+    let has_dn = p.and_then(|m| m.get("slew_dn_per_sec")).is_some();
+    let initial = get_f64("initial", 0.0) as f32;
+    let sl = if has_up || has_dn {
+        let up = get_f64("slew_up_per_sec", 2.0) as f32;
+        let dn = get_f64("slew_dn_per_sec", 2.0) as f32;
+        SlewLimiter::with_asymmetric(up, dn).with_initial_value(initial)
+    } else {
+        let s = get_f64("max_slew_per_sec", 2.0) as f32;
+        SlewLimiter::new(s).with_initial_value(initial)
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(sl),
         in_port,
         out_port,
     )))

@@ -49,6 +49,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **freq_shifter** — Hilbert-FIR SSB frequency shifter (additive `Δf` in Hz, harmonic-destroying)
 - **ring_modulator** — sine-carrier double-sideband suppressed-carrier AM (`y = x · cos(2π·fc·n/fs)`, audible carrier; produces mirror sidebands at `f ± fc`, Dalek / bell timbre)
 - **hard_clipper** — memoryless symmetric clipping distortion (`y = clamp(drive·x, ±ceiling)`; odd-harmonic fuzz / overdrive, distinct from the `tanh` soft-clip of `tape_saturation`)
+- **slew_limiter** — slope-limited smoother (`Δ = x − y_prev; y = y_prev + clamp(Δ, ±s)` with `s = max_slew_per_sec / fs`); linear-ramp response (vs the LPF's exponential), with optional asymmetric rise / fall caps. Anti-zipper / portamento / anti-pop primitive.
 
 ## Usage
 

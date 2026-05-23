@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 106: one new filter family — `slew_limiter` (slope-limited
+  smoother that bounds the per-sample output change). Per channel the
+  recurrence is `Δ = x[n] − y[n−1]; y[n] = y[n−1] + clamp(Δ, −s, +s)`
+  where `s = max_slew_per_sec / fs` so the same instance is stream-
+  rate-agnostic (re-derived per `process` call against
+  `AudioStreamParams::sample_rate`). Linear-ramp response — input
+  jumps larger than `s` ramp at exactly the cap rate until the
+  output catches up, then snap to bit-exact pass-through — vs the
+  exponential decay of a one-pole / biquad LPF. Asymmetric variant
+  (`SlewLimiter::with_asymmetric(up, dn)`) lets rise and fall caps
+  differ independently (e.g. fast attack / slow release, or one-sided
+  rate-limit). `with_initial_value(v)` seeds the held value so a
+  spliced segment doesn't ramp up from zero. Classic anti-zipper /
+  portamento glide / anti-pop primitive used in analog-style synth
+  modulation smoothers and click-prone parameter changes (volume,
+  pan, EQ Q-factor). Registered in `registry::register` as
+  `"slew_limiter"`, with the JSON spec accepting either the symmetric
+  `max_slew_per_sec` knob or the explicit `slew_up_per_sec` /
+  `slew_dn_per_sec` pair (plus optional `initial`). 10 hand-derived
+  unit tests (closed-form ramp at cap rate, within-budget bit-exact
+  pass-through, downward step with seed, asymmetric attack/release
+  independence, streaming continuity across split calls, stereo
+  channel independence, zero-slew freeze, very-high-slew pass-through,
+  rate-invariance of per-second slope across fs ∈ {10, 100, 1000} Hz,
+  parameter clamping). Distinct from any existing filter — the LPF
+  family (`biquad`, `dc_blocker`) all have exponential-decay
+  smoothing; only the slew limiter gives a strictly linear ramp
+  response.
 - round 101: one new filter family — `hard_clipper` (memoryless
   symmetric clipping distortion: `y = clamp(drive·x, -ceiling,
   +ceiling)`). The transfer curve is piecewise linear with slope
