@@ -1,6 +1,6 @@
 //! Biquadratic IIR EQ filter family.
 //!
-//! Implements seven second-order IIR configurations sharing a single
+//! Implements eight second-order IIR configurations sharing a single
 //! direct-form-II-transposed core. State is held in `f64` to keep the
 //! recurrence numerically stable for low cutoff / high-Q settings; the
 //! per-sample input and output remain `f32`.
@@ -59,7 +59,7 @@ use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Result};
 
-/// One of the seven supported biquad configurations.
+/// One of the eight supported biquad configurations.
 ///
 /// All variants are derived from the bilinear transform of their analog
 /// prototypes; see the module docs.
@@ -91,6 +91,14 @@ pub enum BiquadKind {
         q: f32,
         gain_db: f32,
     },
+    /// Second-order all-pass — `|H(e^{jω})| ≡ 1` for every `ω` (flat
+    /// magnitude response), but the phase rotates through `−2π` as
+    /// frequency sweeps from DC to Nyquist, crossing `−π` at the
+    /// centre frequency. Width of the phase-rotation transition is
+    /// set by `Q`: higher `Q` → sharper sweep. Used as a phase-
+    /// alignment / decorrelation primitive in reverb tanks, phaser
+    /// stages, and crossover phase-correction networks.
+    AllPass { center_hz: f32, q: f32 },
 }
 
 /// Normalised second-order section coefficients (`b0, b1, b2, a1, a2`)
@@ -127,6 +135,7 @@ impl Coeffs {
                 q,
                 gain_db,
             } => high_shelf(fs, cutoff_hz as f64, q as f64, gain_db as f64),
+            BiquadKind::AllPass { center_hz, q } => all_pass(fs, center_hz as f64, q as f64),
         }
     }
 }
@@ -261,6 +270,30 @@ fn high_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
     normalise(b0, b1, b2, a0, a1, a2)
 }
 
+/// Second-order all-pass. Analog prototype `H(s) = (s² − s/Q + 1) /
+/// (s² + s/Q + 1)` — numerator and denominator are mirror images so
+/// `|H(jω)| ≡ 1` for every analog frequency. Bilinear transform gives
+/// `b = (1 − α, −2cosω, 1 + α)`, `a = (1 + α, −2cosω, 1 − α)`; the
+/// numerator is the bit-reversal of the denominator, which preserves
+/// the flat-magnitude property in the digital domain. Phase rotates
+/// from `0` at DC down through `−π` at `ω = ω_c` to `−2π` at Nyquist.
+///
+/// Formula derived from the standard Audio EQ Cookbook expressions
+/// (Robert Bristow-Johnson, public-domain canonical reference for
+/// bilinear-transformed cookbook biquads); written here in our own
+/// variable names from the documented analog `H(s)` above, no
+/// reference C source consulted.
+fn all_pass(fs: f64, fc: f64, q: f64) -> Coeffs {
+    let v = warp(fs, fc, q);
+    let b0 = 1.0 - v.alpha;
+    let b1 = -2.0 * v.cosw;
+    let b2 = 1.0 + v.alpha;
+    let a0 = 1.0 + v.alpha;
+    let a1 = -2.0 * v.cosw;
+    let a2 = 1.0 - v.alpha;
+    normalise(b0, b1, b2, a0, a1, a2)
+}
+
 /// Per-channel DF-II-transposed state.
 #[derive(Debug, Clone, Copy, Default)]
 struct State {
@@ -346,6 +379,14 @@ impl Biquad {
             q,
             gain_db,
         });
+        bq.ensure_coeffs(sample_rate_hz);
+        bq
+    }
+    /// Convenience: second-order all-pass (flat magnitude, frequency-
+    /// dependent phase rotation centred at `center_hz`; `Q` sets the
+    /// width of the phase-rotation transition).
+    pub fn all_pass(sample_rate_hz: u32, center_hz: f32, q: f32) -> Self {
+        let mut bq = Self::new(BiquadKind::AllPass { center_hz, q });
         bq.ensure_coeffs(sample_rate_hz);
         bq
     }
@@ -591,6 +632,115 @@ mod tests {
         let y = run(&mut bq, &x, fs, 8_192);
         let g_db = db(rms(&y)) - db(rms(&sine(fc, fs, 8_192)));
         assert!(g_db < -20.0, "notch attenuation at fc = {}", g_db);
+    }
+
+    #[test]
+    fn all_pass_flat_magnitude_at_three_frequencies() {
+        // The defining property of an all-pass is `|H(e^{jω})| ≡ 1` at
+        // every frequency, regardless of `Q`. We probe at three points
+        // around a `center_hz = 1 kHz` design — well below (passband-
+        // style), at the centre (the transition / phase-flip point),
+        // and well above (stopband-style) — and assert the steady-state
+        // gain is within ±0.1 dB of unity at all three.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let q = 2.0f32;
+        let probes = [200.0f32, 1_000.0f32, 8_000.0f32];
+        for &probe in &probes {
+            let mut bq = Biquad::all_pass(fs, fc, q);
+            let x = sine(probe, fs, 16_384);
+            // Skip a generous start-up window so the IIR transient has
+            // decayed; an APF with Q=2 settles within ~10 ms (≈ 480
+            // samples at 48 kHz), so 8 192 samples is comfortable.
+            let y = run(&mut bq, &x, fs, 8_192);
+            let g_db = db(rms(&y)) - db(rms(&sine(probe, fs, 8_192)));
+            assert!(
+                g_db.abs() < 0.1,
+                "all-pass magnitude at {} Hz = {} dB (expected ≈ 0)",
+                probe,
+                g_db
+            );
+        }
+    }
+
+    #[test]
+    fn all_pass_phase_inverts_at_center_frequency() {
+        // Sanity check on the phase response: at `ω = ω_c` the cookbook
+        // APF has phase `−π`, i.e. a sign flip. Cross-correlating the
+        // input sine with the output should give a strongly negative
+        // peak (output is the negated, magnitude-preserved input plus
+        // a settled transient). We probe at the centre frequency with
+        // a generous tail-skip and expect the inner product to be
+        // close to `−E[x²]` (= `−1/2` for a unit-amplitude sine).
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let mut bq = Biquad::all_pass(fs, fc, std::f32::consts::FRAC_1_SQRT_2);
+        let n = 16_384usize;
+        let x = sine(fc, fs, n);
+        let mut buf = x.clone();
+        bq.process_in_place(&mut buf, 1, fs);
+        // Skip the first half to bypass start-up transient; correlate
+        // tail.
+        let tail_x = &x[n / 2..];
+        let tail_y = &buf[n / 2..];
+        let mut dot = 0.0f64;
+        let mut nrm = 0.0f64;
+        for (xi, yi) in tail_x.iter().zip(tail_y.iter()) {
+            dot += (*xi as f64) * (*yi as f64);
+            nrm += (*xi as f64) * (*xi as f64);
+        }
+        // Cosine of the phase shift in steady state.
+        // For `−π` phase, expected `r = cos(−π) = −1`. Tolerance ±0.1
+        // covers the bilinear pre-warp + finite-window leakage.
+        let r = dot / nrm;
+        assert!(
+            (r + 1.0).abs() < 0.1,
+            "all-pass phase at fc gave correlation {} (expected ≈ -1)",
+            r
+        );
+    }
+
+    #[test]
+    fn all_pass_high_q_impulse_stable() {
+        // With `Q = 50` (very narrow phase-rotation skirt) the poles
+        // sit close to the unit circle; the impulse response is a long
+        // damped sinusoid. We confirm: (a) every sample is finite (no
+        // NaN / Inf from DF-II-T numerics), and (b) the response
+        // decays — the L² energy in the last quarter of the response
+        // is strictly less than the first quarter. Also check the L1
+        // norm is bounded so an external compiler can prove BIBO
+        // stability.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let q = 50.0f32;
+        let mut bq = Biquad::all_pass(fs, fc, q);
+        let mut x = vec![0.0f32; 16_384];
+        x[0] = 1.0;
+        bq.process_in_place(&mut x, 1, fs);
+        // Finite-everywhere check.
+        assert!(
+            x.iter().all(|v| v.is_finite()),
+            "high-Q all-pass impulse response produced non-finite sample"
+        );
+        // Decay check: first-quarter L² energy > last-quarter L².
+        let q_len = x.len() / 4;
+        let head: f64 = x[..q_len].iter().map(|v| (*v as f64).powi(2)).sum();
+        let tail: f64 = x[3 * q_len..].iter().map(|v| (*v as f64).powi(2)).sum();
+        assert!(
+            head > tail,
+            "energy did not decay: head L²={} tail L²={}",
+            head,
+            tail
+        );
+        // L1 bound — a stable all-pass has finite L1 norm of the
+        // impulse response (cookbook APF: ≈ 1/(1-r) where r ≈ poles'
+        // radius; at Q=50 the bound is generous but still finite).
+        let l1: f64 = x.iter().map(|v| (*v as f64).abs()).sum();
+        assert!(
+            l1.is_finite() && l1 < 1_000.0,
+            "high-Q all-pass L1 = {} (expected finite, < 1000)",
+            l1
+        );
     }
 
     #[test]

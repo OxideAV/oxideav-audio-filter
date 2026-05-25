@@ -432,6 +432,7 @@ fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
             q,
             gain_db,
         },
+        "all_pass" | "allpass" | "apf" => BiquadKind::AllPass { center_hz: freq, q },
         other => return Err(Error::invalid(format!("biquad: unknown kind {other:?}"))),
     };
 

@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 132: one new biquad configuration — `BiquadKind::AllPass`
+  (second-order all-pass / phase rotator). Analog prototype
+  `H(s) = (s² − s/Q + 1) / (s² + s/Q + 1)` — numerator and
+  denominator are mirror images so `|H(jω)| ≡ 1` for every analog
+  frequency. Bilinear transform gives `b = (1 − α, −2cosω, 1 + α)`,
+  `a = (1 + α, −2cosω, 1 − α)`; the digital numerator is the bit-
+  reversal of the denominator, which preserves the flat-magnitude
+  property in `z`. Phase response rotates from `0` at DC through
+  `−π` at the centre frequency to `−2π` at Nyquist; `Q` sets the
+  width of the phase-rotation skirt (higher `Q` → sharper sweep).
+  Cookbook formula transcribed from the documented analog `H(s)`
+  in our own variable names — no reference C source consulted.
+  Used as a phase-alignment / decorrelation primitive in reverb
+  tanks, phaser stages, and crossover phase-correction networks;
+  algorithmically distinct from the 7 existing biquad kinds (LPF
+  / HPF / BPF / notch / peaking / low-shelf / high-shelf), each of
+  which has a frequency-dependent magnitude response. Convenience
+  constructor `Biquad::all_pass(sample_rate_hz, center_hz, q)`
+  matches the existing `low_pass` / `high_pass` / ... ergonomics.
+  Registered in `registry::make_biquad` under JSON kind aliases
+  `"all_pass"` / `"allpass"` / `"apf"` so callers can spec it from
+  pipeline config. 3 hand-derived unit tests: flat magnitude at
+  three probe frequencies (200 Hz passband, 1 kHz centre /
+  transition, 8 kHz stopband — all within ±0.1 dB of unity gain
+  with `Q=2`); phase-inversion (correlation of input vs settled
+  output at `f_c` ≈ −1, confirming the `−π` phase shift at the
+  centre); high-Q (`Q=50`) impulse-response numerical stability
+  (every sample finite, last-quarter L² < first-quarter L²,
+  L1 norm finite and bounded < 1000).
 - round 106: one new filter family — `slew_limiter` (slope-limited
   smoother that bounds the per-sample output change). Per channel the
   recurrence is `Δ = x[n] − y[n−1]; y[n] = y[n−1] + clamp(Δ, −s, +s)`

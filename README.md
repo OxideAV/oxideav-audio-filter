@@ -12,7 +12,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **resample** — polyphase windowed-sinc rate conversion
 - **spectrogram** — STFT renderer with PNG / video output
 - **downmix** — channel-layout fold-down (LoRo / LtRt / Average / Binaural)
-- **biquad** — seven-config IIR EQ family (LPF / HPF / BPF / notch / peaking / low-shelf / high-shelf) with DF-II-T `f64` state
+- **biquad** — eight-config IIR EQ family (LPF / HPF / BPF / notch / peaking / low-shelf / high-shelf / all-pass) with DF-II-T `f64` state
 - **compressor** — peak compressor with soft-knee, attack/release follower, and make-up gain
 - **limiter** — brickwall peak limiter with optional look-ahead (0..=2048 samples)
 - **dc_blocker** — single-pole IIR HPF (`y[n] = x[n] - x[n-1] + R·y[n-1]`) for DC-offset removal
