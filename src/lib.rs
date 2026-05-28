@@ -119,6 +119,13 @@
 //!   / fs`. Linear-ramp response (vs the LPF's exponential response);
 //!   classic anti-zipper / portamento / anti-pop primitive. Supports
 //!   asymmetric rise / fall caps.
+//! - [`Expander`](expander::Expander) — proportional downward expander
+//!   (slope `-(R - 1)` per dB under threshold). Distinct from the
+//!   binary [`NoiseGate`](noise_gate::NoiseGate): a `2:1` setting
+//!   gives `2 dB` attenuation for each `1 dB` of under-shoot, fading
+//!   gracefully into silence instead of slamming closed. `ratio = ∞`
+//!   collapses to a hard downward gate; soft-knee width smooths the
+//!   threshold transition.
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -136,6 +143,7 @@ pub mod echo;
 pub mod envelope_follower;
 pub mod equalizer;
 pub mod exciter;
+pub mod expander;
 pub mod fft;
 pub mod flanger;
 pub mod freq_shifter;
@@ -186,6 +194,7 @@ pub use echo::Echo;
 pub use envelope_follower::{EnvelopeFollower, EnvelopeMode};
 pub use equalizer::Equalizer;
 pub use exciter::Exciter;
+pub use expander::Expander;
 pub use flanger::Flanger;
 pub use freq_shifter::FreqShifter;
 pub use gain_normalizer::GainNormalizer;

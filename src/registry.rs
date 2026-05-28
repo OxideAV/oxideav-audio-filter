@@ -93,6 +93,7 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("hard_clipper", Box::new(make_hard_clipper));
     ctx.filters
         .register("slew_limiter", Box::new(make_slew_limiter));
+    ctx.filters.register("expander", Box::new(make_expander));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1624,6 +1625,43 @@ fn make_slew_limiter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stre
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(sl),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "expander", "threshold_db": -40.0, "ratio": 2.0,
+/// "attack_ms": 5.0, "release_ms": 50.0, "knee_db": 0.0,
+/// "makeup_gain_db": 0.0}` — proportional downward expander
+/// (`-(R - 1) dB` per dB below threshold). Use a large `ratio` (e.g.
+/// `1.0e6`) or JSON `null` substituted for `ratio` to approach the
+/// hard-gate limit; in code [`crate::Expander::gate`] gives the
+/// `ratio = ∞` form directly. Distinct from `noise_gate` (binary
+/// open/close) — fades gracefully into silence instead of slamming
+/// shut.
+fn make_expander(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Expander;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let exp = Expander::new(
+        get_f64("threshold_db", -40.0) as f32,
+        get_f64("ratio", 2.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 50.0) as f32,
+        get_f64("knee_db", 0.0) as f32,
+        get_f64("makeup_gain_db", 0.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(exp),
         in_port,
         out_port,
     )))

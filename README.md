@@ -50,6 +50,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **ring_modulator** — sine-carrier double-sideband suppressed-carrier AM (`y = x · cos(2π·fc·n/fs)`, audible carrier; produces mirror sidebands at `f ± fc`, Dalek / bell timbre)
 - **hard_clipper** — memoryless symmetric clipping distortion (`y = clamp(drive·x, ±ceiling)`; odd-harmonic fuzz / overdrive, distinct from the `tanh` soft-clip of `tape_saturation`)
 - **slew_limiter** — slope-limited smoother (`Δ = x − y_prev; y = y_prev + clamp(Δ, ±s)` with `s = max_slew_per_sec / fs`); linear-ramp response (vs the LPF's exponential), with optional asymmetric rise / fall caps. Anti-zipper / portamento / anti-pop primitive.
+- **expander** — proportional downward expander: `gr_db = -(R − 1) · max(0, threshold_db − env_db)`. Distinct from `noise_gate` (binary open/close) and from `compressor` (slope on the *above*-threshold side). `ratio = 1.0` → identity, `ratio = ∞` → hard downward gate, finite ratios in between trade off between gentle noise-floor management (`1.5:1` / `2:1`) and aggressive expansion (`4:1`+). Soft-knee width smooths the threshold transition; attack/release one-pole follower; peak-linked detector across channels.
 
 ## Usage
 

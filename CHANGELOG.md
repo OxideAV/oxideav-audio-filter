@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 174: one new filter family — `expander` (proportional downward
+  expander, the under-threshold mirror of the existing `compressor`).
+  Static curve `gr_db = -(R - 1) · max(0, threshold_db - env_db)` for
+  finite `ratio`, with an optional soft-knee width `W` blending the
+  unity-gain and slope segments via the quadratic
+  `gr_db = -(R - 1) · (W/2) · ((W/2 - over)/W)²` for `over ∈ (-W/2,
+  +W/2)`. `ratio = 1.0` collapses to identity (bypass);
+  `ratio = f32::INFINITY` is the brick-wall downward-gate limit
+  case (signal under the lower-knee edge multiplied by zero, with a
+  quadratic in-knee fade preserving continuity). Same one-pole
+  envelope follower as `compressor` (`α = exp(-1 / (τ · fs))`, peak-
+  linked across channels so the stereo image is preserved). Distinct
+  from `noise_gate`: the latter is a *binary* device that ramps the
+  output gain between `0.0` and `1.0` via attack/hold/release timing,
+  whereas an expander is *proportional* — a `-50 dBFS` signal with
+  `-40 dBFS` threshold and `2:1` ratio gets exactly `10 dB`
+  attenuation, while a `-60 dBFS` signal gets `20 dB`, fading
+  gracefully into silence as the input falls further. Constructors:
+  `Expander::new(threshold_db, ratio, attack_ms, release_ms, knee_db,
+  makeup_gain_db)`, `Expander::downward(t, r, atk, rel)` (hard knee +
+  unity make-up), `Expander::gate(t, atk, rel)` (`ratio = ∞`).
+  Registered in `registry::register` as `"expander"` accepting JSON
+  `threshold_db` / `ratio` / `attack_ms` / `release_ms` / `knee_db` /
+  `makeup_gain_db` knobs; default `{-40, 2:1, 5 ms, 50 ms, 0 dB
+  knee, 0 dB makeup}` is a sensible general noise-floor management
+  preset. 10 hand-derived unit tests: above-threshold pass-through
+  (≤ 0.5 dB residual); steady-state `-10 dB` reduction at `2:1` with
+  `10 dB` under-shoot; steady-state `-40 dB` reduction at `3:1` with
+  `20 dB` under-shoot; `ratio = 1` identity; `ratio = ∞` hard-gate
+  silence; soft-knee continuity (closed-form middle-of-knee + lower-
+  knee-edge + well-below-knee values match the analytic formula,
+  monotonic non-increasing as drive falls); peak-linked detector
+  preserves stereo image when only one channel is loud; make-up gain
+  applies post-curve; parameter clamping (`ratio ≥ 1`, times ≥ 0,
+  knee ≥ 0); rate invariance (44.1 kHz vs 96 kHz steady-state
+  attenuation within 1.5 dB); streaming continuity (single-call vs
+  split-call sample-by-sample identity within 1 µ FS). Algorithm
+  derived from first principles by mirroring `compressor.rs`'s
+  static curve across the threshold; no external library source
+  consulted.
 - round 132: one new biquad configuration — `BiquadKind::AllPass`
   (second-order all-pass / phase rotator). Analog prototype
   `H(s) = (s² − s/Q + 1) / (s² + s/Q + 1)` — numerator and
