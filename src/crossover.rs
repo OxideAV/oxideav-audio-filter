@@ -70,7 +70,8 @@ use oxideav_core::{AudioFrame, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrossoverSlope {
     /// Single Butterworth-2 per band, 12 dB/oct, −3 dB at `cutoff_hz`.
-    /// Magnitude-summation reconstruction (~+3 dB lump at the crossover).
+    /// Direct summation nulls at the crossover (LPF/HPF are 180° apart);
+    /// recombine through downstream processing, not by addition.
     Butterworth2,
     /// 4th-order Linkwitz-Riley, 24 dB/oct: two cascaded Butterworth-2
     /// sections per band, −6 dB at `cutoff_hz`, in-phase summation →
