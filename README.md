@@ -7,7 +7,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 ## Filters
 
 - **volume** — linear / dB gain with hard clipping
-- **noise_gate** — threshold + attack/release/hold envelope gate
+- **noise_gate** — threshold + attack/release/hold envelope gate; optional two-threshold hysteresis (`open_db` / `close_db`, sticky latch eliminates chatter when the drive dances around the threshold) and Hermite-smoothstep soft-knee (`knee_db`, C¹-continuous transition with 0.5 gain at the knee centre). `NoiseGate::new` keeps the legacy hard-knee single-threshold behaviour byte-for-byte; `NoiseGate::with` exposes the upgraded parameters.
 - **echo** — single-tap delay line with feedback and wet/dry mix
 - **resample** — polyphase windowed-sinc rate conversion
 - **spectrogram** — STFT renderer with PNG / video output

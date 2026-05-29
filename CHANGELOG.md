@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 181: hysteresis + soft-knee upgrades for the existing `noise_gate`
+  filter. New constructor `NoiseGate::with(open_db, close_db, knee_db,
+  attack_ms, release_ms, hold_ms)` exposes the two-threshold + smooth-knee
+  parameters. **Hysteresis**: the gate opens only when drive rises above
+  `open_db` and re-closes only when drive falls below `close_db` (must
+  satisfy `close_db ≤ open_db`; an inverted spec is clamped to
+  `close_db = open_db` = no hysteresis); the latch is sticky inside the
+  band, eliminating the chatter the original single-threshold gate emits
+  when the signal dances around the threshold. **Soft-knee**: `knee_db`
+  widens the transition into a Hermite-smoothstep region (C¹-continuous,
+  midpoint = 0.5 at the threshold centre); `knee_db = 0.0` reproduces the
+  original hard step exactly. Both upgrades are opt-in — the legacy
+  `NoiseGate::new(threshold_db, attack_ms, release_ms, hold_ms)`
+  constructor still builds a hard-knee single-threshold gate with
+  `open_db = close_db = threshold_db` and `knee_db = 0`, so existing
+  call-sites are byte-for-byte unaffected. The registry `noise_gate`
+  factory gains optional `hysteresis_db` (default 6 dB when present),
+  explicit `close_db` override, and `knee_db` keys; specs that omit all
+  three route through the legacy constructor unchanged. Also adds
+  `NoiseGate::reset()` (clear latch + envelope without rebuilding
+  sample-rate coefficients) and `thresholds_db()` / `knee_db()`
+  accessors. 8 new unit tests: hard-knee step verification, smoothstep
+  monotonicity + midpoint, hysteresis prevents chatter (drive between
+  thresholds → gate stays closed), hysteresis latch holds open through
+  a dip into the hysteresis band, soft-knee gain ≈ 0.5 at knee centre,
+  invalid `close_db > open_db` clamps to zero hysteresis, legacy `new`
+  constructor preserves binary-step behaviour, `reset` returns the
+  gate to closed state. Existing `quiet_signal_is_attenuated` and
+  `loud_signal_passes_through` tests stay green unchanged.
+
 - round 174: one new filter family — `expander` (proportional downward
   expander, the under-threshold mirror of the existing `compressor`).
   Static curve `gr_db = -(R - 1) · max(0, threshold_db - env_db)` for

@@ -218,12 +218,36 @@ fn make_noise_gate(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
             .and_then(|v| v.as_f64())
             .unwrap_or(dflt)
     };
-    let gate = NoiseGate::new(
-        get_f64("threshold_db", -40.0) as f32,
-        get_f64("attack_ms", 10.0) as f32,
-        get_f64("release_ms", 100.0) as f32,
-        get_f64("hold_ms", 50.0) as f32,
-    );
+    let has = |k: &str| p.and_then(|m| m.get(k)).is_some();
+    let threshold_db = get_f64("threshold_db", -40.0) as f32;
+    let attack_ms = get_f64("attack_ms", 10.0) as f32;
+    let release_ms = get_f64("release_ms", 100.0) as f32;
+    let hold_ms = get_f64("hold_ms", 50.0) as f32;
+    // Optional hysteresis + soft-knee upgrades (r181). If the job
+    // spec omits both `hysteresis_db`/`close_db` AND `knee_db`, fall
+    // through to the legacy hard-knee single-threshold constructor so
+    // existing job specs are byte-for-byte unaffected.
+    let gate = if has("hysteresis_db") || has("close_db") || has("knee_db") {
+        // `close_db` overrides; otherwise derive it from `hysteresis_db`
+        // (default 6 dB, a common broadcast value).
+        let close_db = if has("close_db") {
+            get_f64("close_db", (threshold_db - 6.0) as f64) as f32
+        } else {
+            let hyst = get_f64("hysteresis_db", 6.0) as f32;
+            threshold_db - hyst.max(0.0)
+        };
+        let knee_db = get_f64("knee_db", 0.0) as f32;
+        NoiseGate::with(
+            threshold_db,
+            close_db,
+            knee_db,
+            attack_ms,
+            release_ms,
+            hold_ms,
+        )
+    } else {
+        NoiseGate::new(threshold_db, attack_ms, release_ms, hold_ms)
+    };
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
         name: "audio".to_string(),
