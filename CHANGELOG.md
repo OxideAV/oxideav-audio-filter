@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.1.1...v0.1.2) - 2026-05-29
+
+### Other
+
+- fix stale +3 dB-lump claim on Butterworth2 doc variant
+- add Linkwitz-Riley 4th-order (LR4) slope (round 188)
+- add hysteresis + soft-knee upgrades (round 181)
+- add expander — proportional downward expander (round 174)
+- add second-order all-pass (APF) phase-rotator kind (round 132)
+- add slew_limiter slope-bounded smoother (round 106)
+- add hard_clipper memoryless distortion (round 101)
+- round 92: ring_modulator — DSBSC audible-carrier amplitude multiplier
+- round 81: add 4 filter families (transient_designer / ducker / gain_normalizer / freq_shifter)
+- round 72: add 4 filter families (exciter / multiband_compressor / stereo_imager / talkbox)
+- round 6: add 6 filter families (mid_side / envelope_follower / de_esser / wah / octave_doubler / adaptive_noise_gate)
+- round 5: add 6 filter families (vibrato / auto_pan / bitcrusher / tape_saturation / hum_filter / crossover)
+- round 4: add 8 filter families (chorus / flanger / phaser / equalizer / white_noise / pink_noise / brown_noise / silence_detector)
+- round 3: add 6 filter families (dc_blocker / stereo_widener / reverb / tremolo / loudness_itu / pitch_shift)
+- round 2: add biquad EQ + compressor + limiter filter families
+
 ### Added
 
 - round 188: 4th-order Linkwitz-Riley (LR4) slope for the existing
