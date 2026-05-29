@@ -73,7 +73,9 @@
 //! - [`HumFilter`](hum_filter::HumFilter) — cascaded narrow notches at
 //!   line-mains fundamental + harmonics.
 //! - [`Crossover`](crossover::Crossover) — two-way LPF/HPF band split
-//!   at a configurable cutoff (output frame carries 2× input channels).
+//!   at a configurable cutoff (output frame carries 2× input channels);
+//!   Butterworth-2 (12 dB/oct) or magnitude-flat Linkwitz-Riley-4
+//!   (24 dB/oct) slope via [`CrossoverSlope`](crossover::CrossoverSlope).
 //! - [`MidSide`](mid_side::MidSide) — explicit L/R ↔ M/S transcoder
 //!   (stateless, exact roundtrip).
 //! - [`EnvelopeFollower`](envelope_follower::EnvelopeFollower) — peak
@@ -185,7 +187,7 @@ pub use bitcrusher::Bitcrusher;
 pub use brown_noise::BrownNoise;
 pub use chorus::Chorus;
 pub use compressor::Compressor;
-pub use crossover::Crossover;
+pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;
 pub use de_esser::DeEsser;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};

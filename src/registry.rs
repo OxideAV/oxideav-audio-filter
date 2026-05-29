@@ -1069,18 +1069,28 @@ fn make_hum_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
 
 /// `{"filter": "crossover", "cutoff_hz": 1000.0, "q": 0.707}` — two-way
 /// LPF/HPF split; output port carries `2× input channels`.
+///
+/// Optional `"slope"` selects the topology: `"butterworth2"` (default,
+/// 12 dB/oct) or `"lr4"` / `"linkwitz_riley"` (24 dB/oct, magnitude-flat
+/// summation). For LR4 the per-section Q is forced to `1/√2`.
 fn make_crossover(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::Crossover;
+    use crate::{Crossover, CrossoverSlope};
     let p = params.as_object();
     let get_f64 = |k: &str, dflt: f64| {
         p.and_then(|m| m.get(k))
             .and_then(|v| v.as_f64())
             .unwrap_or(dflt)
     };
-    let xo = Crossover::new(
-        get_f64("cutoff_hz", 1_000.0) as f32,
-        get_f64("q", std::f64::consts::FRAC_1_SQRT_2) as f32,
-    );
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let cutoff_hz = get_f64("cutoff_hz", 1_000.0) as f32;
+    let q = get_f64("q", std::f64::consts::FRAC_1_SQRT_2) as f32;
+    let slope = match get_str("slope") {
+        Some("lr4") | Some("linkwitz_riley") | Some("linkwitz-riley") => {
+            CrossoverSlope::LinkwitzRiley4
+        }
+        _ => CrossoverSlope::Butterworth2,
+    };
+    let xo = Crossover::with_slope(cutoff_hz, q, slope);
     let in_port = audio_in_port(inputs);
     let (sample_rate, channels, format) = match &in_port.params {
         PortParams::Audio {

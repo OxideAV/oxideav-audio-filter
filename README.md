@@ -32,7 +32,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **bitcrusher** — bit-depth quantisation + sample-and-hold rate reduction
 - **tape_saturation** — `tanh` soft-clip waveshaper with asymmetric drive (odd + even harmonics)
 - **hum_filter** — cascaded narrow notches at 50/60 Hz mains fundamental + harmonics
-- **crossover** — two-way LPF/HPF band split (`output channels = 2× input`)
+- **crossover** — two-way LPF/HPF band split (`output channels = 2× input`); Butterworth-2 (12 dB/oct, default, byte-for-byte legacy via `Crossover::new`/`butterworth`) or `CrossoverSlope::LinkwitzRiley4` (24 dB/oct, two cascaded Butterworth-2 per band → −6 dB at fc, in-phase, magnitude-flat `|low + high| = 1` reconstruction). Registry `slope` key (`"lr4"`)
 - **mid_side** — explicit L/R ↔ M/S transcoder (stateless, exact roundtrip)
 - **envelope_follower** — peak / RMS amplitude envelope detector (pass-through, observe via API)
 - **de_esser** — split-band downward compressor targeting sibilance

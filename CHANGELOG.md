@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 188: 4th-order Linkwitz-Riley (LR4) slope for the existing
+  `crossover` filter. New [`CrossoverSlope`] enum
+  (`Butterworth2` / `LinkwitzRiley4`) plus constructors
+  `Crossover::with_slope(cutoff_hz, q, slope)` and
+  `Crossover::linkwitz_riley(cutoff_hz)`, and a `slope()` accessor. LR4 is
+  built as **two cascaded Butterworth-2 sections** (`q = 1/√2`) per band,
+  giving a 24 dB/oct split that is −6 dB at the crossover and *in phase*
+  between bands, so the summed output is a 2nd-order all-pass:
+  magnitude-flat reconstruction (`|low + high| = 1` at every frequency).
+  This is the standard fix for the reconstruction defect of the simple
+  parallel Butterworth-2 form, whose LPF and HPF are 180° apart at the
+  crossover and therefore *null* on direct summation. The legacy
+  `Crossover::new` / `Crossover::butterworth` constructors keep the
+  Butterworth-2 (12 dB/oct) behaviour byte-for-byte; for LR4 the
+  per-section Q is forced to `1/√2` regardless of the `q` argument (two
+  cascaded Butterworth-2 is what defines LR4). The registry `crossover`
+  factory gains an optional `"slope"` key (`"butterworth2"` default, or
+  `"lr4"` / `"linkwitz_riley"`). 5 new unit tests: slope/Q reporting,
+  −6 dB-per-band at fc, LR4 high-band rejecting >10 dB steeper than
+  Butterworth-2 two octaves below fc, magnitude-flat L+H reconstruction
+  across five probe frequencies, and the contrasting Butterworth-2
+  summation null at fc.
+
 - round 181: hysteresis + soft-knee upgrades for the existing `noise_gate`
   filter. New constructor `NoiseGate::with(open_db, close_db, knee_db,
   attack_ms, release_ms, hold_ms)` exposes the two-threshold + smooth-knee
