@@ -128,6 +128,17 @@
 //!   gracefully into silence instead of slamming closed. `ratio = ∞`
 //!   collapses to a hard downward gate; soft-knee width smooths the
 //!   threshold transition.
+//! - [`TruePeakDetector`](true_peak_detector::TruePeakDetector) — 4×
+//!   polyphase oversampled inter-sample peak observer (dBTP).
+//!   Pass-through; reports `current_dbtp` / `max_dbtp` / `overs`
+//!   count. Distinct from [`Limiter`](limiter::Limiter) (sample-peak
+//!   reduction), [`EnvelopeFollower`](envelope_follower::EnvelopeFollower)
+//!   (smoothed envelope), and [`LoudnessITU`](loudness::LoudnessITU)
+//!   (K-weighted integrated loudness). 48-tap Kaiser-windowed FIR
+//!   (β chosen for ~100 dB stop-band) split into 4 polyphase
+//!   sub-filters of 12 taps each; `f64` accumulation; recovers the
+//!   ≈ 0 dBTP inter-sample peak of an `fs/4 + π/4`-phase full-scale
+//!   sine whose sample-peak is only `-3.01 dBFS`.
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -175,6 +186,7 @@ pub mod talkbox;
 pub mod tape_saturation;
 pub mod transient_designer;
 pub mod tremolo;
+pub mod true_peak_detector;
 pub mod vibrato;
 pub mod volume;
 pub mod wah;
@@ -224,6 +236,7 @@ pub use talkbox::{Talkbox, Vowel};
 pub use tape_saturation::TapeSaturation;
 pub use transient_designer::TransientDesigner;
 pub use tremolo::Tremolo;
+pub use true_peak_detector::TruePeakDetector;
 pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use wah::Wah;

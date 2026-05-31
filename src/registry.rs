@@ -94,6 +94,8 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("slew_limiter", Box::new(make_slew_limiter));
     ctx.filters.register("expander", Box::new(make_expander));
+    ctx.filters
+        .register("true_peak_detector", Box::new(make_true_peak_detector));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1696,6 +1698,48 @@ fn make_expander(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFi
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(exp),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "true_peak_detector", "oversample": 4, "taps": 48,
+/// "kaiser_db": 100.0, "overs_threshold": 1.0}` — pass-through
+/// observer that reports inter-sample peak level (dBTP) via 4×
+/// polyphase Kaiser-windowed FIR oversampling. All keys optional;
+/// defaults give the conventional broadcast-loudness 4× / 12-tap
+/// per-phase / ~100 dB stop-band / 0 dBTP overs threshold setup. The
+/// detector emits audio frames unchanged; downstream stages observe
+/// `current_dbtp` / `max_dbtp` / `overs` by holding a direct handle
+/// to the [`TruePeakDetector`](crate::TruePeakDetector). Within the
+/// `StreamFilter` graph the detector simply forwards the input
+/// without modification — wire it inline with the audio it should
+/// observe.
+fn make_true_peak_detector(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::TruePeakDetector;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let oversample = get_u64("oversample", 4) as usize;
+    let taps = get_u64("taps", 48) as usize;
+    let kaiser_db = get_f64("kaiser_db", 100.0);
+    let overs_threshold = get_f64("overs_threshold", 1.0) as f32;
+    let det = TruePeakDetector::with_params(oversample, taps, kaiser_db, overs_threshold);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(det),
         in_port,
         out_port,
     )))

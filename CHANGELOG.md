@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- round 198: `true_peak_detector` — 4× polyphase Kaiser-windowed FIR
+  oversampling inter-sample peak observer (dBTP). Pass-through audio;
+  exposes `current_dbtp` / `max_dbtp` / `overs` count. Distinct from
+  `limiter` (sample-peak reduction), `envelope_follower` (smoothed
+  envelope), and `loudness_itu` (K-weighted integrated loudness). 48-tap
+  base FIR (12 taps per polyphase sub-filter) designed at construction
+  via the Kaiser–Schafer empirical β formula; `f64` accumulation for
+  the convolution. Recovers `≈ 0 dBTP` on the canonical `fs/4 + π/4`
+  full-scale sine whose sample-peak is only `-3.01 dBFS`. New filter
+  registry entry `"true_peak_detector"`.
+
 ## [0.1.2](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.1.1...v0.1.2) - 2026-05-29
 
 ### Other
