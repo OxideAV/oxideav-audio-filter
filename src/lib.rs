@@ -139,6 +139,13 @@
 //!   sub-filters of 12 taps each; `f64` accumulation; recovers the
 //!   ≈ 0 dBTP inter-sample peak of an `fs/4 + π/4`-phase full-scale
 //!   sine whose sample-peak is only `-3.01 dBFS`.
+//! - [`SvfFilter`](state_variable::SvfFilter) — Chamberlin
+//!   two-integrator-loop State Variable Filter. Simultaneous
+//!   LP / BP / HP / Notch taps from one recurrence, `f`-modulatable
+//!   per sample (single `sin` on `set_cutoff`). State-space topology
+//!   distinct from [`Biquad`](biquad::Biquad)'s Direct-Form-II-
+//!   Transposed transfer-function realisation. Stable while
+//!   `f_c < f_s / 6` and `Q ∈ [0.5, 50]`; clamped at the boundary.
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -180,6 +187,7 @@ pub mod sample_convert;
 pub mod silence_detector;
 pub mod slew_limiter;
 pub mod spectrogram;
+pub mod state_variable;
 pub mod stereo_imager;
 pub mod stereo_widener;
 pub mod talkbox;
@@ -230,6 +238,7 @@ pub use ring_modulator::RingModulator;
 pub use silence_detector::SilenceDetector;
 pub use slew_limiter::SlewLimiter;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
+pub use state_variable::{SvfFilter, SvfMode};
 pub use stereo_imager::StereoImager;
 pub use stereo_widener::StereoWidener;
 pub use talkbox::{Talkbox, Vowel};

@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 205: `svf` — Chamberlin two-integrator-loop State Variable
+  Filter (a state-space topology distinct from the existing `biquad`
+  family's bilinear-transform Direct-Form-II-Transposed realisation).
+  Single recurrence
+  `hp[n] = x[n] - q·bp[n-1] - lp[n-1]; bp[n] = bp[n-1] + f·hp[n];
+  lp[n] = lp[n-1] + f·bp[n]; notch[n] = hp[n] + lp[n]` produces all
+  four canonical taps in one update, so [`SvfMode`] selects which is
+  emitted without touching state. Coefficients are
+  `f = 2·sin(π·f_c/f_s)` (frequency parameter) and `q = 1/Q` (damping);
+  cutoff modulation is a single `sin` on `set_cutoff` with no
+  pre-warping or coefficient resolve required, making this the
+  canonical synth filter for envelope-/LFO-swept cutoff sweeps where
+  the bilinear biquad would need to rebuild all six tap coefficients
+  per sample. The discrete two-integrator loop is conditionally
+  stable: clamps enforce `f_c ≤ f_s / 6.5` and `Q ∈ [0.5, 50.0]` at
+  construction and on `set_cutoff` / `set_q`. The Notch tap is
+  `hp + lp`, which in the discrete form degrades as Q rises (deep at
+  low Q, can lift above unity gain at Q ≥ 10); the docs flag this and
+  point callers wanting sharp narrow-band reject at high Q to the
+  bilinear-biquad Notch instead. Constructors: `SvfFilter::new(mode,
+  cutoff, q)`, `SvfFilter::low_pass / band_pass / high_pass / notch`
+  (mode-shorthand factories), plus mode-/cutoff-/Q-mutating
+  `set_mode` / `set_cutoff` / `set_q` and `reset()`. Registered in
+  `registry::register` as `"svf"` accepting JSON `mode` (`"low_pass"`
+  / `"band_pass"` / `"high_pass"` / `"notch"` with `lp` / `bp` / `hp`
+  / `bs` aliases), `cutoff_hz` (or `center_hz`), and `q` keys;
+  defaults `{low_pass, 1 kHz, Q = 0.707}` give a Butterworth-equivalent
+  LPF. 12 hand-derived unit tests: LP pass-band ≤ 0.5 dB at one decade
+  below cutoff + stop-band ≤ −20 dB three octaves above; HP mirror
+  (one octave below cutoff stop ≤ −20 dB, pass-band within 1 dB at
+  three octaves above); BP centre gain peaks dominant over both
+  skirts at Q = 4; Notch centre cut ≥ 15 dB at Q = 0.5 with DC-band
+  flatness ≤ 1 dB; mode-switch preserves integrator state; stereo
+  channels do not cross-talk through the resonant loop; `reset()`
+  clears state but keeps cached coefficients; `set_cutoff` defers
+  recompute until first sample rate is observed; Q clamp at both ends
+  of the documented range; cutoff above stability bound clamps
+  internally (impulse-train probe stays bounded); streaming
+  continuity across split calls is bit-identical; sample-rate change
+  recomputes `f` proportionally (48 → 96 kHz ratio ≈ 0.5 to within
+  2 %). Algorithm derived from first principles by matching the
+  analog `H_lp(s) = 1 / (s² + s/Q + 1)` against the discrete
+  two-integrator loop; classical reference *Hal Chamberlin, "Musical
+  Applications of Microprocessors" (2nd ed., Hayden Books, 1985,
+  ch. 19)* cited in module docs.
+
 - round 198: `true_peak_detector` — 4× polyphase Kaiser-windowed FIR
   oversampling inter-sample peak observer (dBTP). Pass-through audio;
   exposes `current_dbtp` / `max_dbtp` / `overs` count. Distinct from
@@ -133,8 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attenuation within 1.5 dB); streaming continuity (single-call vs
   split-call sample-by-sample identity within 1 µ FS). Algorithm
   derived from first principles by mirroring `compressor.rs`'s
-  static curve across the threshold; no external library source
-  consulted.
+  static curve across the threshold.
 - round 132: one new biquad configuration — `BiquadKind::AllPass`
   (second-order all-pass / phase rotator). Analog prototype
   `H(s) = (s² − s/Q + 1) / (s² + s/Q + 1)` — numerator and
@@ -146,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `−π` at the centre frequency to `−2π` at Nyquist; `Q` sets the
   width of the phase-rotation skirt (higher `Q` → sharper sweep).
   Cookbook formula transcribed from the documented analog `H(s)`
-  in our own variable names — no reference C source consulted.
+  in our own variable names.
   Used as a phase-alignment / decorrelation primitive in reverb
   tanks, phaser stages, and crossover phase-correction networks;
   algorithmically distinct from the 7 existing biquad kinds (LPF

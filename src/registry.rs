@@ -96,6 +96,7 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("expander", Box::new(make_expander));
     ctx.filters
         .register("true_peak_detector", Box::new(make_true_peak_detector));
+    ctx.filters.register("svf", Box::new(make_svf));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1740,6 +1741,54 @@ fn make_true_peak_detector(params: &Value, inputs: &[PortSpec]) -> Result<Box<dy
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(det),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "svf", "mode": "low_pass", "cutoff_hz": 1000.0,
+/// "q": 0.707}` — Chamberlin State Variable Filter. All keys optional;
+/// defaults give a 1 kHz Butterworth-equivalent LPF. The `mode` key
+/// accepts `"low_pass"` / `"lp"`, `"band_pass"` / `"bp"`, `"high_pass"`
+/// / `"hp"`, or `"notch"`. Distinct topology from the bilinear-transform
+/// [`Biquad`](crate::biquad::Biquad): a state-space two-integrator
+/// loop where cutoff and `Q` can be modulated per-sample without
+/// recomputing transfer-function coefficients. Stable while
+/// `f_c < f_s / 6` and `Q ∈ [0.5, 50]`; out-of-range arguments are
+/// clamped at construction.
+fn make_svf(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{SvfFilter, SvfMode};
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let mode_str = p
+        .and_then(|m| m.get("mode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("low_pass");
+    let mode = match mode_str {
+        "low_pass" | "lp" | "lowpass" => SvfMode::LowPass,
+        "band_pass" | "bp" | "bandpass" => SvfMode::BandPass,
+        "high_pass" | "hp" | "highpass" => SvfMode::HighPass,
+        "notch" | "band_stop" | "bandstop" | "bs" => SvfMode::Notch,
+        other => {
+            return Err(Error::invalid(format!(
+                "job: filter 'svf' unknown mode '{other}' (expected low_pass/band_pass/high_pass/notch)"
+            )));
+        }
+    };
+    let cutoff_hz = get_f64("cutoff_hz", get_f64("center_hz", 1_000.0)) as f32;
+    let q = get_f64("q", 0.707) as f32;
+    let svf = SvfFilter::new(mode, cutoff_hz, q);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(svf),
         in_port,
         out_port,
     )))
