@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 209: `pre_emphasis` + `de_emphasis` — paired analog-broadcast
+  / tape / FM record EQ shelving filters. Shared `EmphasisCurve`
+  family covers `Fm50us` (European FM, 50 µs), `Fm75us` (North-American
+  FM, 75 µs), `J17` (ITU-R J.17 voice-band, 50 µs), `Custom { tau_s }`
+  (user-specified single-time-constant), and `Riaa3180_318_75`
+  (phonograph / vinyl second-order three-time-constant 3180 + 318 +
+  75 µs curve). Coefficients derived in-source by bilinear transform
+  of `H_pre(s) = (1 + s·τ) / (1 + s·τ/G)` and its inverse `H_de(s) =
+  (1 + s·τ/G) / (1 + s·τ)`. For RIAA the second-order analog transfers
+  `H_rec(s) = (1 + s·τ₁)·(1 + s·τ₃) / (1 + s·τ₂)` and `H_play(s) =
+  (1 + s·τ₂) / ((1 + s·τ₁)·(1 + s·τ₃))` are bilinear-mapped to
+  direct-form-I `(b₀, b₁, b₂, a₁, a₂)` coefficients, with the matching
+  `(z + 1)` factor between analog numerator and denominator cancelled
+  symbolically before extraction. Full derivation (DC-gain = 1 sanity
+  check, Nyquist-gain = G / 1/G asymptote check, pole-location
+  stability proof) is in the module headers as the central audit aid
+  for clean-room provenance — no table-lifted coefficients from any
+  external source. The asymptotic shelf-top gain `G` (default 10,
+  clamped to [1, 1000]) bounds the discrete shelf's HF response; for
+  FM emphasis the analog standard takes `G → ∞`, but a finite `G`
+  whose equivalent pole `G/τ` sits above Nyquist is acoustically
+  equivalent and guarantees a strictly-stable discrete filter. The
+  cascade `pre_emphasis(curve, G) · de_emphasis(curve, G)` is the
+  exact algebraic inverse `H_pre(z) · H_de(z) = 1`; in `f64`
+  floating-point the cascade error on a splitmix64-driven broadband
+  pseudo-noise probe is ≤ −60 dB RMS for FM curves and ≤ −50 dB RMS
+  for RIAA. Per-channel state (one `(x_prev, y_prev)` pair for
+  first-order curves, `(x_prev, x_prev2, y_prev, y_prev2)` for RIAA);
+  `reset()`; `set_sample_rate` rederives coefficients. Registered in
+  `registry::register` as `"pre_emphasis"` / `"de_emphasis"` accepting
+  JSON `curve` (`"fm_50us"` / `"fm_75us"` / `"j17"` / `"riaa"` /
+  `"custom"` + `"tau_us"` for custom) and `g` (asymptotic shelf gain)
+  keys. 15 hand-derived unit tests per filter: DC gain unity
+  (first- and second-order); Nyquist asymptote equals `G` (pre) /
+  `1/G` (de); derived corner frequency at `f_c = 1/(2π·τ) ≈ 3183 Hz`
+  for FM-50 / 2122 Hz for FM-75; +20 dB/decade slope verified between
+  two decade-spaced frequencies; J.17 ≡ FM-50 first-order-identity
+  check; `Custom { tau_s }` ≡ named first-order-identity check;
+  per-channel state isolation; streaming continuity (split-vs-whole
+  call bit-identical); sample-rate change rederives `(c, c/G)`; reset
+  clears state but preserves coefficients; gain clamped at `G = 1`
+  reduces to identity; RIAA qualitative bass/treble asymmetry matches
+  the curve's record / playback bias. Three cascade-identity tests
+  (FM-50 / FM-75 / RIAA) verify the inverse property. Test total
+  rises from 280 to 310 (+30).
+
 - round 205: `svf` — Chamberlin two-integrator-loop State Variable
   Filter (a state-space topology distinct from the existing `biquad`
   family's bilinear-transform Direct-Form-II-Transposed realisation).

@@ -146,6 +146,15 @@
 //!   distinct from [`Biquad`](biquad::Biquad)'s Direct-Form-II-
 //!   Transposed transfer-function realisation. Stable while
 //!   `f_c < f_s / 6` and `Q ∈ [0.5, 50]`; clamped at the boundary.
+//! - [`PreEmphasis`](pre_emphasis::PreEmphasis) /
+//!   [`DeEmphasis`](de_emphasis::DeEmphasis) — paired analog-broadcast
+//!   / tape / FM record EQ shelving filters with a shared
+//!   [`Curve`](pre_emphasis::Curve) family covering FM 50 µs / FM 75 µs
+//!   / ITU-R J.17 / RIAA 3180 + 318 + 75 µs / user-specified
+//!   single-time-constant. Coefficients are derived in-source via
+//!   bilinear transform of `H_pre(s) = (1 + s·τ) / (1 + s·τ/G)` and
+//!   its inverse; `pre · de` cascades to the identity by
+//!   construction (within `f64` round-off).
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -156,6 +165,7 @@ pub mod chorus;
 pub mod compressor;
 pub mod crossover;
 pub mod dc_blocker;
+pub mod de_emphasis;
 pub mod de_esser;
 pub mod downmix;
 pub mod ducker;
@@ -179,6 +189,7 @@ pub mod octave_doubler;
 pub mod phaser;
 pub mod pink_noise;
 pub mod pitch_shift;
+pub mod pre_emphasis;
 pub mod registry;
 pub mod resample;
 pub mod reverb;
@@ -209,6 +220,7 @@ pub use chorus::Chorus;
 pub use compressor::Compressor;
 pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;
+pub use de_emphasis::DeEmphasis;
 pub use de_esser::DeEsser;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
 pub use ducker::Ducker;
@@ -231,6 +243,7 @@ pub use octave_doubler::OctaveDoubler;
 pub use phaser::Phaser;
 pub use pink_noise::PinkNoise;
 pub use pitch_shift::PitchShift;
+pub use pre_emphasis::{Curve as EmphasisCurve, PreEmphasis};
 pub use registry::{__oxideav_entry, register};
 pub use resample::Resample;
 pub use reverb::Reverb;

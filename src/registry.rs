@@ -97,6 +97,10 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("true_peak_detector", Box::new(make_true_peak_detector));
     ctx.filters.register("svf", Box::new(make_svf));
+    ctx.filters
+        .register("pre_emphasis", Box::new(make_pre_emphasis));
+    ctx.filters
+        .register("de_emphasis", Box::new(make_de_emphasis));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1789,6 +1793,91 @@ fn make_svf(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(svf),
+        in_port,
+        out_port,
+    )))
+}
+
+/// Resolve the JSON `curve` key into a [`crate::pre_emphasis::Curve`].
+/// Accepts `"fm_50us"` / `"fm_75us"` / `"j17"` / `"riaa"` /
+/// `"custom"` (with `"tau_us"` companion key for the custom case).
+fn resolve_emphasis_curve(
+    p: Option<&serde_json::Map<String, Value>>,
+) -> Result<crate::pre_emphasis::Curve> {
+    use crate::pre_emphasis::Curve;
+    let name = p
+        .and_then(|m| m.get("curve"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("fm_50us");
+    match name {
+        "fm_50us" | "fm50" | "50us" => Ok(Curve::Fm50us),
+        "fm_75us" | "fm75" | "75us" => Ok(Curve::Fm75us),
+        "j17" | "j_17" | "j.17" => Ok(Curve::J17),
+        "riaa" | "riaa_3180_318_75" => Ok(Curve::Riaa3180_318_75),
+        "custom" => {
+            let tau_us = p
+                .and_then(|m| m.get("tau_us"))
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    Error::invalid(
+                        "job: filter '*emphasis' curve = 'custom' requires \
+                         'tau_us' key (time constant in microseconds)",
+                    )
+                })?;
+            Ok(Curve::Custom {
+                tau_s: (tau_us as f32) * 1.0e-6,
+            })
+        }
+        other => Err(Error::invalid(format!(
+            "job: filter '*emphasis' unknown curve '{other}' \
+             (expected fm_50us / fm_75us / j17 / riaa / custom)"
+        ))),
+    }
+}
+
+/// `{"filter": "pre_emphasis", "curve": "fm_50us", "g": 10.0}` —
+/// analog-broadcast / tape / FM record EQ pre-emphasis. Default curve
+/// is FM 50 µs; default asymptotic shelf gain is 10× (20 dB HF boost).
+fn make_pre_emphasis(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::PreEmphasis;
+    let p = params.as_object();
+    let curve = resolve_emphasis_curve(p)?;
+    let g = p
+        .and_then(|m| m.get("g"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(10.0) as f32;
+    let flt = PreEmphasis::with_gain(curve, g);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(flt),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "de_emphasis", "curve": "fm_50us", "g": 10.0}` —
+/// analog-broadcast / tape / FM playback EQ de-emphasis (inverse of
+/// `pre_emphasis` with matching `curve` + `g`).
+fn make_de_emphasis(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::DeEmphasis;
+    let p = params.as_object();
+    let curve = resolve_emphasis_curve(p)?;
+    let g = p
+        .and_then(|m| m.get("g"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(10.0) as f32;
+    let flt = DeEmphasis::with_gain(curve, g);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(flt),
         in_port,
         out_port,
     )))
