@@ -146,6 +146,16 @@
 //!   distinct from [`Biquad`](biquad::Biquad)'s Direct-Form-II-
 //!   Transposed transfer-function realisation. Stable while
 //!   `f_c < f_s / 6` and `Q ∈ [0.5, 50]`; clamped at the boundary.
+//! - [`MedianFilter`](median_filter::MedianFilter) — non-linear
+//!   sliding-window median filter for impulse-noise (click / pop)
+//!   removal. Per channel: keeps an `N`-sample ring buffer and emits
+//!   the median of the latest `N` samples as the output for every
+//!   input. Step edges that span more than `N / 2` samples pass
+//!   through unaltered, but isolated impulse outliers are entirely
+//!   discarded — a behaviour no linear LPF achieves. Complements the
+//!   restoration family ([`HumFilter`](hum_filter::HumFilter) on
+//!   cyclic-mains, [`DcBlocker`](dc_blocker::DcBlocker) on DC drift)
+//!   by targeting transient impulse noise instead.
 //! - [`PreEmphasis`](pre_emphasis::PreEmphasis) /
 //!   [`DeEmphasis`](de_emphasis::DeEmphasis) — paired analog-broadcast
 //!   / tape / FM record EQ shelving filters with a shared
@@ -182,6 +192,7 @@ pub mod hard_clipper;
 pub mod hum_filter;
 pub mod limiter;
 pub mod loudness;
+pub mod median_filter;
 pub mod mid_side;
 pub mod multiband_compressor;
 pub mod noise_gate;
@@ -236,6 +247,7 @@ pub use hard_clipper::HardClipper;
 pub use hum_filter::HumFilter;
 pub use limiter::Limiter;
 pub use loudness::LoudnessITU;
+pub use median_filter::MedianFilter;
 pub use mid_side::{MidSide, MidSideMode};
 pub use multiband_compressor::{BandSettings, MultibandCompressor};
 pub use noise_gate::NoiseGate;

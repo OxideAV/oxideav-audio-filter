@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 220: `median_filter` — non-linear sliding-window median filter
+  for impulse-noise (click / pop) restoration. Per channel the filter
+  maintains an `N`-sample ring buffer; every output sample is the
+  **median** of the latest `N` ring contents (insertion-sorted into a
+  per-`process()` scratch buffer to avoid per-sample allocation). The
+  filter is non-linear — unlike every IIR / FIR filter the crate
+  already ships, it does not satisfy superposition — which is exactly
+  what gives it the property linear LPFs cannot achieve: it kills
+  isolated impulse outliers without softening the surrounding signal.
+  Step edges that span more than `window / 2` samples pass through
+  unaltered; a single outlier sample on an otherwise quiet baseline
+  is entirely discarded. Within the crate's restoration family it
+  complements `hum_filter` (cyclic-mains denoising) and `dc_blocker`
+  (DC drift removal) by targeting *transient* impulse noise instead
+  of cyclic or DC content. `MedianFilter::new(window)` clamps the
+  window into `[1, MedianFilter::MAX_WINDOW]` (`= [1, 257]`);
+  `window = 1` is the identity (allowed for parameter-sweep
+  convenience); odd windows return the central sorted sample; even
+  windows return the `f64` mean of the two central sorted samples
+  (a tiny low-pass smoothing on top of the median pick).
+  `MedianFilter::default()` picks `window = 5`, the canonical
+  click-removal default — wide enough to mask a couple of adjacent
+  impulses, narrow enough to preserve transients of musical interest.
+  Per-channel state (each channel keeps its own ring buffer and write
+  index, so stereo input does not cross-talk through the filter);
+  `reset()` zeros every ring without changing the configured window.
+  Registered in `registry::register` as `"median_filter"` accepting a
+  JSON `window` key. 13 hand-derived unit tests: window=1 identity;
+  window clamps at zero and at `MAX_WINDOW`; `Default` is `5`;
+  isolated impulse fully suppressed on a constant baseline; two
+  adjacent impulses fool a 3-tap window but are killed by a 5-tap
+  one (the textbook "two-impulse robustness" boundary); ramp / step
+  edge preserved exactly; even-window centre-pair mean; per-channel
+  no-cross-talk; `reset()` zeros the ring; streaming continuity (one
+  frame ≡ two split frames with the same state path); `median_of`
+  helper standalone (odd window, even window, already-sorted ring);
+  S16 sample format roundtrips through the f32-internal filter.
+  Insertion-sort hot path documented as the steady-state best case
+  (`O(window)` on near-sorted ring contents); cap `MAX_WINDOW = 257`
+  defends against pathological per-sample allocations without
+  rejecting any realistic configuration.
+
 - round 215 (depth-mode benchmarks): Criterion harness `benches/filters.rs`
   covering seven representative filters across the architectural families the
   crate ships — `biquad_lpf` (single second-order DF-II-T IIR),

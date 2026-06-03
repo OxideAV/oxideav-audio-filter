@@ -101,6 +101,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("pre_emphasis", Box::new(make_pre_emphasis));
     ctx.filters
         .register("de_emphasis", Box::new(make_de_emphasis));
+    ctx.filters
+        .register("median_filter", Box::new(make_median_filter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1871,6 +1873,34 @@ fn make_de_emphasis(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Strea
         .and_then(|v| v.as_f64())
         .unwrap_or(10.0) as f32;
     let flt = DeEmphasis::with_gain(curve, g);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(flt),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "median_filter", "window": 5}` — sliding-window median
+/// filter (non-linear impulse-noise restoration). `window` is the
+/// number of samples in the per-channel ring; defaults to `5`
+/// (canonical click-removal value). The runtime clamps `window` into
+/// `[1, MedianFilter::MAX_WINDOW]` (= `[1, 257]`); an out-of-range
+/// request is accepted but silently saturated rather than rejected,
+/// matching the other "parametric knob" filters in this registry.
+fn make_median_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::MedianFilter;
+    let p = params.as_object();
+    let window = p
+        .and_then(|m| m.get("window"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(5);
+    let flt = MedianFilter::new(window);
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
         name: "audio".to_string(),
