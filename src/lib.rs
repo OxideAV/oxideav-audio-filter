@@ -156,6 +156,20 @@
 //!   restoration family ([`HumFilter`](hum_filter::HumFilter) on
 //!   cyclic-mains, [`DcBlocker`](dc_blocker::DcBlocker) on DC drift)
 //!   by targeting transient impulse noise instead.
+//! - [`CrestFactorMeter`] —
+//!   pass-through observer reporting the peak-to-RMS ratio in dB over a
+//!   sliding rectangular window (default 400 ms, EBU R128 short-term
+//!   window). Distinct from
+//!   [`TruePeakDetector`](true_peak_detector::TruePeakDetector)
+//!   (absolute oversampled peak only), [`LoudnessITU`](loudness::LoudnessITU)
+//!   (K-weighted integrated loudness only), and
+//!   [`EnvelopeFollower`](envelope_follower::EnvelopeFollower) (single
+//!   one-pole envelope, not a ratio). Reports `0 dB` on a square wave,
+//!   `3.01 dB` on a sine, `~5–8 dB` on heavy broadcast pop, `> 20 dB`
+//!   on sparse drum transients. Maintains running sum-of-squares for
+//!   RMS plus a monotonic deque for sliding `max |x|` — both `O(1)`
+//!   amortised per sample; periodic per-window sum-of-squares rebuild
+//!   bounds `f64` drift on long streams.
 //! - [`PreEmphasis`](pre_emphasis::PreEmphasis) /
 //!   [`DeEmphasis`](de_emphasis::DeEmphasis) — paired analog-broadcast
 //!   / tape / FM record EQ shelving filters with a shared
@@ -173,6 +187,7 @@ pub mod bitcrusher;
 pub mod brown_noise;
 pub mod chorus;
 pub mod compressor;
+pub mod crest_factor_meter;
 pub mod crossover;
 pub mod dc_blocker;
 pub mod de_emphasis;
@@ -229,6 +244,7 @@ pub use bitcrusher::Bitcrusher;
 pub use brown_noise::BrownNoise;
 pub use chorus::Chorus;
 pub use compressor::Compressor;
+pub use crest_factor_meter::CrestFactorMeter;
 pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;
 pub use de_emphasis::DeEmphasis;

@@ -9,6 +9,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 226: `crest_factor_meter` — pass-through observer reporting
+  peak-to-RMS ratio (crest factor) in dB over a sliding rectangular
+  window. The crest factor `CF = peak / rms` (or
+  `20·log10(peak/rms)` in dB) is the textbook scalar that quantifies
+  how "spiky" or transient-rich a signal is: a sine wave reads
+  `3.01 dB`, a symmetric square wave reads `0 dB`, broadband noise
+  lands near `11 dB`, heavily-compressed broadcast pop sits in the
+  `5..8 dB` range, sparse drum transients can push beyond `20 dB`.
+  Window defaults to `400 ms` (matching the EBU R128 short-term
+  loudness window), clamped to `[0.1, 10_000]` ms; the sample-count
+  form is additionally clamped to `[1, 192_000]` samples (4 s at
+  48 kHz) — the cap defends against pathological per-sample
+  allocations without rejecting any realistic broadcast / mastering
+  window. Two running statistics drive the meter: (a) per-channel
+  running sum-of-squares `S = Σ x²` updated incrementally on each
+  in-and-out sample pair (`S ← S + x_new² − x_old²`), with a
+  per-window rebuild from ring contents that bounds `f64` round-off
+  drift on long streams; (b) per-channel monotonic-decreasing deque
+  of `(|x|, sample_index)` — the classical sliding-maximum
+  primitive — where the deque front always holds the active-window
+  maximum, the rear pops while the incoming `|x|` dominates, and
+  the front pops when its sample index falls outside
+  `[n − window_samples + 1, n]`. Both run in `O(1)` amortised per
+  sample (each sample is pushed and popped at most once). Channels
+  are linked by `max` of the per-channel peak and `max` of the
+  per-channel RMS so a loud transient on one half of a split stereo
+  bed isn't masked by a quieter average on the other. Until the
+  window first fills, `current_db` returns `f32::NEG_INFINITY` and
+  `current_linear` returns `0.0` so callers can branch on "not yet
+  ready"; the `samples_seen()` accessor exposes the warm-up count
+  explicitly. Silent windows (rms = 0) also map to NEG_INFINITY,
+  matching the convention of every other observation filter in the
+  crate (`true_peak_detector`, `loudness_itu`). Distinct from
+  `true_peak_detector` (absolute oversampled inter-sample peak only;
+  says nothing about average power), `loudness_itu` (K-weighted
+  integrated LUFS; says nothing about transient peaks),
+  `envelope_follower` (single one-pole peak or RMS envelope; not a
+  ratio), and `silence_detector` (binary above/below RMS-threshold
+  flag). API surface: `current_db` / `current_linear` /
+  `current_peak` / `current_rms` (snapshot at frame close);
+  `max_db` / `reset_max` (running max over history);
+  `samples_seen` / `window_samples` / `window_ms` (introspection);
+  `reset` (wipe all state). Registered in `registry::register` as
+  `"crest_factor_meter"` accepting JSON `window_ms` key (default
+  `400.0`). 18 hand-derived unit tests: pass-through preserves audio
+  bytes byte-for-byte; before-window-full returns NEG_INFINITY;
+  DC input yields exactly `0 dB` (peak == rms); full-scale sine
+  yields exactly `3.0103 dB` (`20·log10(√2)`) when the window holds
+  an integer number of periods; symmetric square wave yields exactly
+  `0 dB` (`|x|` constant); single transient spike on a quiet
+  baseline pushes the meter above `15 dB`; silent window reports
+  NEG_INFINITY; stereo peak-link picks the louder channel; running
+  max latches on the loudest frame and survives a quieter trailing
+  frame; `reset_max` clears only the max, leaving `current_db`
+  intact; `reset` wipes everything (samples_seen → 0,
+  window_samples → 0); split-call vs single-call streaming continuity
+  identical within `1e-3`; window_ms clamp at both ends; sample-count
+  clamp to `CFM_MAX_WINDOW_SAMPLES`; sample-rate change rebuilds
+  `window_samples` proportionally (48 → 96 kHz ratio ≈ 2.0);
+  `linear_to_db` helper maps `≤ 0` ratios to NEG_INFINITY (no NaN);
+  long-stream sum-of-squares stays bit-stable (the per-window rebuild
+  safeguard); sliding-max correctly drops a loud sample once its
+  sample index expires (the monotonic-deque pop_front branch fires).
+  Test total rises from 325 to 343 (+18).
+
 - round 220: `median_filter` — non-linear sliding-window median filter
   for impulse-noise (click / pop) restoration. Per channel the filter
   maintains an `N`-sample ring buffer; every output sample is the

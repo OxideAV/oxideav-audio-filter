@@ -103,6 +103,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("de_emphasis", Box::new(make_de_emphasis));
     ctx.filters
         .register("median_filter", Box::new(make_median_filter));
+    ctx.filters
+        .register("crest_factor_meter", Box::new(make_crest_factor_meter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1908,6 +1910,32 @@ fn make_median_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Str
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(flt),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "crest_factor_meter", "window_ms": 400.0}` — pass-through
+/// observer reporting the peak-to-RMS ratio (crest factor) in dB over a
+/// sliding rectangular window. Window defaults to 400 ms (EBU R128
+/// short-term); the JSON `window_ms` key overrides it. Observation-only;
+/// consumers poll the meter's accessors directly.
+fn make_crest_factor_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::CrestFactorMeter;
+    let p = params.as_object();
+    let window_ms = p
+        .and_then(|m| m.get("window_ms"))
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(crate::crest_factor_meter::CFM_DEFAULT_WINDOW_MS);
+    let m = CrestFactorMeter::with_window_ms(window_ms);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
         in_port,
         out_port,
     )))
