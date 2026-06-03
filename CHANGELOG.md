@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 215 (depth-mode benchmarks): Criterion harness `benches/filters.rs`
+  covering seven representative filters across the architectural families the
+  crate ships — `biquad_lpf` (single second-order DF-II-T IIR),
+  `equalizer_3band` (cascaded biquads), `loudness_itu` (BS.1770-4 K-weighting +
+  RLB HPF + per-channel mean-square), `compressor` (peak-detector soft-knee
+  follower), `reverb` (Schroeder 4 combs ║ 2 all-passes), `resample_44k1_48k`
+  (polyphase windowed-sinc), and `true_peak_4x` (4× polyphase Kaiser-FIR
+  inter-sample peak detector). Every PCM input is synthesised in-bench from a
+  deterministic xorshift32 seed and fed through the public `AudioFilter::process`
+  / `process_in_place` surface, so per-filter algorithm tweaks in future rounds
+  (compressor follower constants, resampler polyphase taps, true-peak FIR width,
+  …) have a stable per-byte throughput baseline. Criterion pinned to the `0.5`
+  line the sibling audio crates (`oxideav-flac`, `oxideav-tta`) already track.
+  No behavioural change to any filter; the harness is observational only.
+
 - round 209: `pre_emphasis` + `de_emphasis` — paired analog-broadcast
   / tape / FM record EQ shelving filters. Shared `EmphasisCurve`
   family covers `Fm50us` (European FM, 50 µs), `Fm75us` (North-American

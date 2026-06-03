@@ -62,6 +62,27 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 oxideav-audio-filter = "0.0"
 ```
 
+## Benchmarks
+
+Criterion harness `benches/filters.rs` measures the per-sample DSP cost of seven
+representative filter families on deterministic xorshift32-synthesised PCM:
+
+- `biquad_lpf` — single second-order IIR (DF-II-T, `f64` state), stereo F32 @ 48 kHz
+- `equalizer_3band` — low-shelf + peaking + high-shelf cascade, stereo F32 @ 48 kHz
+- `loudness_itu` — BS.1770-4 K-weighting + RLB HPF + per-channel mean-square, stereo F32 @ 48 kHz
+- `compressor` — peak-detector soft-knee compressor, stereo F32 @ 48 kHz
+- `reverb` — Schroeder 4 combs ║ 2 all-passes, stereo F32 @ 48 kHz
+- `resample_44k1_48k` — polyphase windowed-sinc rate conversion, mono F32
+- `true_peak_4x` — 4× polyphase Kaiser-FIR inter-sample peak detection, stereo F32 @ 48 kHz
+
+Every PCM input is built once **outside** the timed region; the bench body
+exercises only the filter's public `AudioFilter::process` / `process_in_place`
+path. Run with:
+
+```sh
+cargo bench -p oxideav-audio-filter --bench filters
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

@@ -16,3 +16,22 @@ categories = ["multimedia::audio"]
 [dependencies]
 oxideav-core = "0.1"
 serde_json = "1"
+
+[dev-dependencies]
+# Round 215 (depth-mode benchmarks). Criterion drives the `filters`
+# bench harness so future per-filter rounds (compressor follower
+# tuning, resampler polyphase taps, true-peak FIR width, …) have a
+# stable baseline. Pinned to the same 0.5 line the sibling audio
+# crates with benches (`oxideav-flac`, `oxideav-tta`, `oxideav-h264`,
+# `oxideav-pixfmt`) already track.
+criterion = "0.5"
+
+# Round 215 benches. The harness is self-contained — every PCM
+# input is synthesised in-bench from a deterministic xorshift32
+# seed, then fed through the public `AudioFilter::process` /
+# `process_in_place` surface. No fixture files committed.
+# Run with:
+#     cargo bench -p oxideav-audio-filter --bench filters
+[[bench]]
+name = "filters"
+harness = false
