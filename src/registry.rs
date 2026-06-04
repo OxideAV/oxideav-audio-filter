@@ -105,6 +105,10 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("median_filter", Box::new(make_median_filter));
     ctx.filters
         .register("crest_factor_meter", Box::new(make_crest_factor_meter));
+    ctx.filters.register(
+        "stereo_correlation_meter",
+        Box::new(make_stereo_correlation_meter),
+    );
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1929,6 +1933,39 @@ fn make_crest_factor_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dy
         .map(|v| v as f32)
         .unwrap_or(crate::crest_factor_meter::CFM_DEFAULT_WINDOW_MS);
     let m = CrestFactorMeter::with_window_ms(window_ms);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "stereo_correlation_meter", "window_ms": 400.0}` —
+/// pass-through observer reporting the Pearson correlation coefficient
+/// between the L and R channels over a sliding rectangular window.
+/// Window defaults to 400 ms (matching `crest_factor_meter` so the two
+/// readouts can share a time axis on a meter display); the JSON
+/// `window_ms` key overrides it. Observation-only; consumers poll
+/// `current()` / `current_degrees()` / `min()` on the meter handle
+/// directly. Stereo input only — mono and >2-channel layouts pass
+/// through unchanged with the meter state untouched.
+fn make_stereo_correlation_meter(
+    params: &Value,
+    inputs: &[PortSpec],
+) -> Result<Box<dyn StreamFilter>> {
+    use crate::StereoCorrelationMeter;
+    let p = params.as_object();
+    let window_ms = p
+        .and_then(|m| m.get("window_ms"))
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(crate::stereo_correlation_meter::SCM_DEFAULT_WINDOW_MS);
+    let m = StereoCorrelationMeter::with_window_ms(window_ms);
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
         name: "audio".to_string(),

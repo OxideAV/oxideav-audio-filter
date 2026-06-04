@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 231: `stereo_correlation_meter` — pass-through observer
+  reporting the windowed Pearson correlation coefficient
+  `ρ ∈ [-1, +1]` between the L and R channels. The Pearson coefficient
+  is a unit-free scalar that classifies the stereo image at a glance:
+  `+1` for identical channels (mono content panned centre); `≈ 0` for
+  orthogonal channels (uncorrelated stereo bed, ambient reverb tails,
+  decorrelated chorus voices); `-1` for phase-inverted channels
+  (the canonical broadcast hazard — most TV / radio chains downstream
+  from the mastering bus still emit a mono sum and a programme that
+  correlates strongly negative dies on the way out). Algorithm: five
+  per-window incremental running sums (`Σx, Σy, Σx², Σy², Σxy`)
+  updated in `O(1)` per sample pair via the standard add-new /
+  subtract-old form; the windowed correlation falls out of the closed
+  form `ρ = (N·Σxy − Σx·Σy) / √((N·Σx² − Σx²)·(N·Σy² − Σy²))` by
+  algebraic identity, with no statistical assumption. To bound `f64`
+  round-off drift on long streams the meter rebuilds all five sums
+  from the active ring contents once per full window — `O(N)` every
+  `N` samples, i.e. `O(1)` amortised. Polar reading
+  `current_degrees() = acos(ρ)·180/π` exposes the classical
+  goniometer's `0° / 90° / 180°` angular axis for direct UI display
+  (perfect-mono / decorrelated / phase-inverted). Running `min()`
+  latches the worst-case correlation seen since construction or last
+  `reset_min`, so a transiently-inverted frame survives a quieter
+  tail. Window default `400 ms` (matching `crest_factor_meter`, so
+  the two readouts can share a time axis on a meter display);
+  clamped to `[0.1, 10_000] ms` and additionally to `[1, 192_000]`
+  samples (4 s at 48 kHz). Stereo input only — mono and multichannel
+  (channel count not equal to two) layouts pass through unchanged
+  with the meter state untouched (`current()` keeps its previous
+  value, or stays at `0.0` if no stereo input has been seen). Pearson
+  is mean-centred (DC offsets don't bias the metric) and
+  scale-invariant (per-channel volume changes don't bias it). Until
+  the window first fills, `current()` returns `0.0` and
+  `current_degrees()` returns `90.0` (the neutral reading); the
+  `samples_seen()` accessor exposes the warm-up count explicitly.
+  Silent windows (either channel has zero variance) also map to the
+  neutral reading rather than NaN, matching the convention of every
+  other observation filter in the crate. API surface: `current` /
+  `current_degrees` (snapshot at frame close), `min` / `reset_min`
+  (running min over history), `samples_seen` / `window_samples` /
+  `window_ms` (introspection), `reset` (wipe all state). Registered
+  in `registry::register` as `"stereo_correlation_meter"` accepting
+  JSON `window_ms` key (default `400.0`). Distinct from
+  `stereo_widener` / `stereo_imager` (both *processors* of the stereo
+  image), from the single-channel meters `crest_factor_meter` /
+  `true_peak_detector` / `loudness_itu` (none of which carries
+  inter-channel phase information), and from `silence_detector`
+  (single-channel binary threshold flag). 19 hand-derived unit tests:
+  pass-through preserves audio bytes byte-for-byte; before-window-full
+  returns the neutral `0.0` reading; identical channels correlate to
+  exactly `+1` (and `0°` on the goniometer); phase-inverted channels
+  correlate to exactly `-1` (and `180°`); quadrature `(sin, cos)`
+  channels correlate to ≈ `0` (and ≈ `90°`); silent windows return
+  the neutral reading rather than NaN; asymmetric zero variance
+  (one silent channel) also returns the neutral reading; DC offsets
+  don't bias the metric; per-channel scaling doesn't bias the metric;
+  `min` latches on the worst correlation across frames; `reset_min`
+  clears only the min; `reset` wipes everything; split-call vs
+  single-call streaming continuity identical within `1e-3`; mono
+  input passes through without updating; `window_ms` clamp at both
+  ends; sample-count clamp to `SCM_MAX_WINDOW_SAMPLES`; sample-rate
+  change rebuilds `window_samples` proportionally (48 → 96 kHz
+  ratio ≈ 2.0); long-stream sums stay bit-stable (the periodic
+  rebuild safeguard); the per-sample clamp keeps `ρ` strictly in
+  `[-1, +1]` and `current_degrees()` strictly in `[0, 180]`.
+  Test total rises from 343 to 362 (+19).
+
 - round 226: `crest_factor_meter` — pass-through observer reporting
   peak-to-RMS ratio (crest factor) in dB over a sliding rectangular
   window. The crest factor `CF = peak / rms` (or

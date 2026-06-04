@@ -170,6 +170,25 @@
 //!   RMS plus a monotonic deque for sliding `max |x|` — both `O(1)`
 //!   amortised per sample; periodic per-window sum-of-squares rebuild
 //!   bounds `f64` drift on long streams.
+//! - [`StereoCorrelationMeter`] — pass-through observer reporting the
+//!   Pearson correlation coefficient between L and R channels over a
+//!   sliding rectangular window (default 400 ms). Maps to the
+//!   goniometer's `0° / 90° / 180°` angular axis via
+//!   [`current_degrees`](stereo_correlation_meter::StereoCorrelationMeter::current_degrees).
+//!   Reports `+1` for identical channels (mono content panned centre),
+//!   `0` for orthogonal channels (uncorrelated stereo bed), and `-1`
+//!   for phase-inverted channels (canonical mono-fold-down
+//!   cancellation hazard). Five-sum incremental closed form
+//!   (Σx, Σy, Σx², Σy², Σxy) at `O(1)` per sample, with a periodic
+//!   per-window rebuild bounding `f64` drift on long streams. Distinct
+//!   from
+//!   [`StereoWidener`](stereo_widener::StereoWidener) and
+//!   [`StereoImager`](stereo_imager::StereoImager) (both of which
+//!   *process* the stereo image), and from the single-channel meters
+//!   [`CrestFactorMeter`], [`TruePeakDetector`](true_peak_detector::TruePeakDetector),
+//!   and [`LoudnessITU`](loudness::LoudnessITU) (all of which collapse
+//!   stereo input to a per-channel-then-max summary, losing the
+//!   inter-channel phase term the correlation meter exposes).
 //! - [`PreEmphasis`](pre_emphasis::PreEmphasis) /
 //!   [`DeEmphasis`](de_emphasis::DeEmphasis) — paired analog-broadcast
 //!   / tape / FM record EQ shelving filters with a shared
@@ -225,6 +244,7 @@ pub mod silence_detector;
 pub mod slew_limiter;
 pub mod spectrogram;
 pub mod state_variable;
+pub mod stereo_correlation_meter;
 pub mod stereo_imager;
 pub mod stereo_widener;
 pub mod talkbox;
@@ -280,6 +300,7 @@ pub use silence_detector::SilenceDetector;
 pub use slew_limiter::SlewLimiter;
 pub use spectrogram::{Colormap, Spectrogram, SpectrogramOptions, Window};
 pub use state_variable::{SvfFilter, SvfMode};
+pub use stereo_correlation_meter::StereoCorrelationMeter;
 pub use stereo_imager::StereoImager;
 pub use stereo_widener::StereoWidener;
 pub use talkbox::{Talkbox, Vowel};
