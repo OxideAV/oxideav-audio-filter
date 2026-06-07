@@ -9,6 +9,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 248: `comb_filter` — tunable single-tap comb filter exposing
+  both the feedforward FIR `y[n] = x[n] + g · x[n − D]` and the
+  feedback IIR `y[n] = x[n] + g · damped(y[n − D])` forms behind a
+  single [`CombMode`] selector, with an optional one-pole low-pass
+  in the feedback path (`damped(·)`). The comb filter is one of the
+  fundamental DSP primitives — its transfer function is a set of
+  evenly-spaced peaks / notches (the "teeth of a comb" in the
+  frequency domain) — and the existing crate uses it as a building
+  block of `reverb` (four parallel combs + two serial all-passes)
+  and `flanger` (feedback comb with an LFO modulating the delay
+  length), but never exposes the bare primitive. This round adds the
+  bare primitive as `CombFilter`. The feedforward form has transfer
+  function `H(z) = 1 + g · z^{-D}` with magnitude
+  `√(1 + g² + 2g·cos(ωD))` — `D + 1` evenly-spaced extrema in
+  `[0, π]` (`[0, fs/2]`), with `g > 0` giving peaks of `1 + g` at
+  `ω = 2πk/D` and troughs of `|1 − g|` at `ω = (2k+1)π/D`, and
+  `g < 0` swapping the two roles. Used in stereo widener side-paths,
+  decorrelation networks, and frequency-domain dereverberation
+  prefilters. The feedback form has transfer function
+  `H(z) = 1 / (1 − g · z^{-D})` with magnitude
+  `1 / √(1 + g² − 2g·cos(ωD))` — resonant peaks of `1 / (1 − g)` at
+  `ω = 2πk/D` (resonance frequencies `f_k = k · fs / D`) with a
+  `−3 dB` bandwidth `≈ (1 − g) · fs / (π · D)`, and `D` poles on a
+  circle of radius `|g|^{1/D}` in the `z` plane. Stable iff
+  `|g| < 1`; the constructors clamp `|g|` to `0.999` for a safety
+  margin (`g = 1` is marginally stable, self-oscillates on a
+  denormal). The optional damping factor `a ∈ [0, 0.999]` inserts a
+  one-pole low-pass `s[n] = (1 − a)·y[n − D] + a·s[n − 1]` in the
+  feedback path so high-frequency overtones decay faster than the
+  fundamental — the natural plucked-string behaviour. `a = 0` is the
+  bare feedback comb. [`CombFilter::karplus_strong(freq_hz, decay)`]
+  picks `D = round(fs / freq_hz)` and `damping = 0.5` for the
+  classic Karplus-Strong plucked-string tone; feed a short noise
+  burst (e.g. from [`WhiteNoise`]) into the filter and the loop
+  circulates and decays into the audible string tone. Delay can be
+  specified either in exact samples (`with_delay_samples`,
+  sample-rate-dependent) or in milliseconds (`with_delay_ms`,
+  rate-portable — `D = round(delay_ms · fs / 1000)` resolved on the
+  first `process()` call against the input stream's `sample_rate`);
+  both clamp the resolved `D` to `[1, MAX_DELAY_SAMPLES = 192_000]`
+  (4 s at 48 kHz). Per-channel ring buffers + per-channel one-pole
+  LP state (feedback-with-damping path only); channels do not
+  cross-talk. `reset()` zeros every channel's ring buffer + LP
+  state without changing the configured mode or delay. `set_mode`
+  swaps the recurrence while preserving the delay-line contents
+  (useful for live morphing between flange and resonator
+  presentations). Registered in `registry::register` as
+  `"comb_filter"` accepting JSON `mode`
+  (`"feedforward"` / `"fir"` / `"ff"` /
+  `"feedback"` / `"iir"` / `"fb"` /
+  `"karplus_strong"` / `"ks"` / `"plucked_string"`), `delay_ms` (or
+  `delay_samples`), `gain`, `damping`, and — for the karplus_strong
+  shortcut — `freq_hz` + `decay`. Distinct from existing delay-line
+  filters: [`Echo`] (single-tap delay with wet/dry mix, used as an
+  audible repetition effect with delays in the tens-to-hundreds of
+  ms range), [`Flanger`] (feedback comb with an LFO modulating the
+  delay length on top), and [`Reverb`] (four parallel combs + two
+  serial all-passes presented collectively as a room simulator).
+  15 hand-derived unit tests: feedforward impulse response matches
+  the closed-form two-tap FIR (`y = 1, 0, 0, 0.5, 0, …` for
+  `D = 3`, `g = 0.5`); feedback impulse response is the exact
+  geometric decay `y[k·D] = g^k` for the bare (un-damped) loop;
+  feedforward at `g = +1` notches the trough frequency
+  `fs / (2D)` to within `0.01` after a `2·D`-sample warm-up;
+  feedforward at `g = +1` doubles DC after warm-up; feedback at
+  `g = 0` is bit-exact identity; `with_delay_ms` resolves to the
+  right sample count at 48 kHz then re-resolves at 96 kHz on a
+  rate change (`D` ratio = 2.0); Karplus-Strong tuning resolves
+  `D = round(fs / freq_hz)` exactly and the loop's tail energy
+  after a noise burst is non-trivial; stereo per-channel state
+  isolation (impulse on left, silence on right → right stays
+  bit-exact silent, left rings); streaming continuity (single
+  call on a 128-sample frame ≡ two calls on two 64-sample halves,
+  bit-identical within `1e-7`); feedback gain clamp at both ends
+  (`±2.0` / `±3.0` requested → `±0.999` retained); delay clamp at
+  both ends (zero bumped to 1, `MAX_DELAY_SAMPLES × 10` capped at
+  `MAX_DELAY_SAMPLES`); `reset()` zeros the ring (zero input
+  post-reset → zero output, no residual decay); `set_mode`
+  preserves the delay buffer (feedforward → feedback transition
+  rings on the next impulse with the expected `g^k` decay
+  pattern); feedback damping reduces resonance peak energy vs a
+  bare feedback comb at the same `g` (LP-in-loop drains energy
+  faster); mode accessor returns the clamped value, not the raw
+  user argument. Test total rises from 362 to 377 (+15).
+
 - round 231: `stereo_correlation_meter` — pass-through observer
   reporting the windowed Pearson correlation coefficient
   `ρ ∈ [-1, +1]` between the L and R channels. The Pearson coefficient

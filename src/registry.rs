@@ -109,6 +109,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         "stereo_correlation_meter",
         Box::new(make_stereo_correlation_meter),
     );
+    ctx.filters
+        .register("comb_filter", Box::new(make_comb_filter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -1973,6 +1975,89 @@ fn make_stereo_correlation_meter(
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(m),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "comb_filter", "mode": "feedforward" | "feedback",
+///   "delay_ms": 10.0, "delay_samples": 480, "gain": 0.5,
+///   "damping": 0.0}` — single-tap tunable comb (FIR or IIR form).
+///
+/// `mode` selects the topology (defaults to `"feedforward"`).  Delay
+/// may be set either in milliseconds (`delay_ms`, rate-portable) or
+/// in exact samples (`delay_samples`, sample-rate-dependent).  If
+/// both are present, `delay_samples` wins; if neither is present
+/// the default is `delay_ms = 10.0`.  `gain` defaults to `0.5`;
+/// for feedback mode it is clamped into `[-0.999, +0.999]` so the
+/// recurrence is strictly stable.  `damping` is only consulted in
+/// feedback mode (clamped to `[0.0, 0.999]`, default `0.0`).
+///
+/// A `"karplus_strong"` shortcut also exists — pass
+/// `"mode": "karplus_strong"` plus `"freq_hz"` (default `220.0`)
+/// and `"decay"` (default `0.99`) and the filter is configured as
+/// a feedback comb tuned to that fundamental with the canonical
+/// half-damping plucked-string tail.
+fn make_comb_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{CombFilter, CombMode};
+    let p = params.as_object();
+    let mode_str = p
+        .and_then(|m| m.get("mode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("feedforward");
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_u64 = |k: &str, dflt: u64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+
+    let gain = get_f64("gain", 0.5) as f32;
+    let damping = get_f64("damping", 0.0) as f32;
+
+    let flt = match mode_str {
+        "feedforward" | "fir" | "ff" => {
+            let mode = CombMode::Feedforward { gain };
+            if let Some(s) = p.and_then(|m| m.get("delay_samples")) {
+                CombFilter::with_delay_samples(mode, s.as_u64().unwrap_or(0) as usize)
+            } else {
+                CombFilter::with_delay_ms(mode, get_f64("delay_ms", 10.0) as f32)
+            }
+        }
+        "feedback" | "iir" | "fb" => {
+            let mode = CombMode::Feedback { gain, damping };
+            if let Some(s) = p.and_then(|m| m.get("delay_samples")) {
+                CombFilter::with_delay_samples(mode, s.as_u64().unwrap_or(0) as usize)
+            } else {
+                CombFilter::with_delay_ms(mode, get_f64("delay_ms", 10.0) as f32)
+            }
+        }
+        "karplus_strong" | "ks" | "plucked_string" => {
+            let freq = get_f64("freq_hz", 220.0) as f32;
+            let decay = get_f64("decay", 0.99) as f32;
+            CombFilter::karplus_strong(freq, decay)
+        }
+        other => {
+            return Err(Error::invalid(format!(
+                "job: filter 'comb_filter' unknown mode '{other}' (expected feedforward/feedback/karplus_strong)"
+            )));
+        }
+    };
+    // Touch unused locals to make the borrow checker happy in the
+    // karplus_strong branch where `gain`/`damping`/etc. aren't read.
+    let _ = get_u64;
+
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(flt),
         in_port,
         out_port,
     )))

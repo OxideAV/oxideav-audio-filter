@@ -170,6 +170,18 @@
 //!   RMS plus a monotonic deque for sliding `max |x|` — both `O(1)`
 //!   amortised per sample; periodic per-window sum-of-squares rebuild
 //!   bounds `f64` drift on long streams.
+//! - [`CombFilter`](comb_filter::CombFilter) — tunable comb filter
+//!   (feedforward FIR `y[n] = x[n] + g·x[n−D]` or feedback IIR
+//!   `y[n] = x[n] + g·damped(y[n−D])`) with optional one-pole LP
+//!   damping on the feedback path. Building block for resonators,
+//!   short-delay flange/chorus voices, plucked-string
+//!   ([`CombFilter::karplus_strong`]) synthesis, and comb-EQ
+//!   effects. Distinct from [`Echo`](echo::Echo) (single-tap audible
+//!   repetition, no resonator framing), from
+//!   [`Flanger`](flanger::Flanger) (LFO-modulated delay length on
+//!   top of a feedback comb), and from [`Reverb`](reverb::Reverb)
+//!   (four parallel combs + two serial all-passes presented as a
+//!   room simulator).
 //! - [`StereoCorrelationMeter`] — pass-through observer reporting the
 //!   Pearson correlation coefficient between L and R channels over a
 //!   sliding rectangular window (default 400 ms). Maps to the
@@ -205,6 +217,7 @@ pub mod biquad;
 pub mod bitcrusher;
 pub mod brown_noise;
 pub mod chorus;
+pub mod comb_filter;
 pub mod compressor;
 pub mod crest_factor_meter;
 pub mod crossover;
@@ -263,6 +276,7 @@ pub use biquad::{Biquad, BiquadKind};
 pub use bitcrusher::Bitcrusher;
 pub use brown_noise::BrownNoise;
 pub use chorus::Chorus;
+pub use comb_filter::{CombFilter, CombMode};
 pub use compressor::Compressor;
 pub use crest_factor_meter::CrestFactorMeter;
 pub use crossover::{Crossover, CrossoverSlope};
