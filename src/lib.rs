@@ -210,6 +210,24 @@
 //!   bilinear transform of `H_pre(s) = (1 + s·τ) / (1 + s·τ/G)` and
 //!   its inverse; `pre · de` cascades to the identity by
 //!   construction (within `f64` round-off).
+//! - [`DcOffsetMeter`] — pass-through observer reporting the
+//!   per-channel running mean (DC component) over a sliding
+//!   rectangular window (default 400 ms). Where
+//!   [`DcBlocker`](dc_blocker::DcBlocker) *removes* a DC bias with a
+//!   single-pole HPF, this meter *reports* it without altering the
+//!   signal. Distinct from the energy / phase observers —
+//!   [`CrestFactorMeter`] is insensitive to a constant offset (peak
+//!   and RMS grow together), [`LoudnessITU`](loudness::LoudnessITU)
+//!   has its own ITU-BS.1770 RLB HPF filtering DC away before the
+//!   K-weighting sum, [`StereoCorrelationMeter`] is mean-centred by
+//!   construction, [`ZeroCrossingRateMeter`] is only *indirectly*
+//!   sensitive (DC shifts the sign-change axis). Algorithm: per
+//!   channel an `f32` ring of `N` samples + an `f64` running sum
+//!   `S = Σ x` updated incrementally (`S ← S + x_new − x_old`) at
+//!   `O(1)` per sample; periodic per-window rebuild bounds `f64`
+//!   drift on long streams. Channel-link picks the per-channel mean
+//!   with largest `|·|`, *sign preserved*, so equal-and-opposite
+//!   biases on a split stereo bed do not cancel in the readout.
 //! - [`ZeroCrossingRateMeter`] — pass-through observer reporting the
 //!   number of sign changes in the signal per unit time over a
 //!   sliding rectangular window (default 25 ms, the canonical speech-
@@ -238,6 +256,7 @@ pub mod compressor;
 pub mod crest_factor_meter;
 pub mod crossover;
 pub mod dc_blocker;
+pub mod dc_offset_meter;
 pub mod de_emphasis;
 pub mod de_esser;
 pub mod downmix;
@@ -298,6 +317,7 @@ pub use compressor::Compressor;
 pub use crest_factor_meter::CrestFactorMeter;
 pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;
+pub use dc_offset_meter::DcOffsetMeter;
 pub use de_emphasis::DeEmphasis;
 pub use de_esser::DeEsser;
 pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};

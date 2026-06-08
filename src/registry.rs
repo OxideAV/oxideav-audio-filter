@@ -113,6 +113,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("comb_filter", Box::new(make_comb_filter));
     ctx.filters
         .register("zero_crossing_rate", Box::new(make_zero_crossing_rate));
+    ctx.filters
+        .register("dc_offset_meter", Box::new(make_dc_offset_meter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -2088,6 +2090,40 @@ fn make_zero_crossing_rate(params: &Value, inputs: &[PortSpec]) -> Result<Box<dy
         .map(|v| v as f32)
         .unwrap_or(crate::zero_crossing_rate::ZCR_DEFAULT_WINDOW_MS);
     let m = ZeroCrossingRateMeter::with_window_ms(window_ms);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "dc_offset_meter", "window_ms": 400.0}` — pass-through
+/// observer reporting the per-channel running mean (DC component)
+/// over a sliding rectangular window. Window defaults to 400 ms
+/// (matching `crest_factor_meter` / `stereo_correlation_meter` so the
+/// three meters share a time axis on a display); the JSON
+/// `window_ms` key overrides it. Observation-only; consumers poll
+/// [`current`](crate::DcOffsetMeter::current) /
+/// [`current_db`](crate::DcOffsetMeter::current_db) /
+/// [`per_channel`](crate::DcOffsetMeter::per_channel) /
+/// [`max_abs`](crate::DcOffsetMeter::max_abs) on the meter handle
+/// directly. Per-sample work is `O(1)` via a ring buffer of `N`
+/// samples and an incrementally-updated running sum; periodic
+/// per-window rebuild bounds `f64` round-off drift on long streams.
+fn make_dc_offset_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::DcOffsetMeter;
+    let p = params.as_object();
+    let window_ms = p
+        .and_then(|m| m.get("window_ms"))
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(crate::dc_offset_meter::DCM_DEFAULT_WINDOW_MS);
+    let m = DcOffsetMeter::with_window_ms(window_ms);
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
         name: "audio".to_string(),

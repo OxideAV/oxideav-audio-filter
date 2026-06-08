@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 263: `dc_offset_meter` — pass-through observer reporting the
+  per-channel running mean (DC component) of the signal over a
+  sliding rectangular window. The textbook scalar `mean = (1/N) · Σ
+  x[n]` quantifies any bias the signal sits on top of, exposed both
+  in linear amplitude (`current()` / `per_channel()`) and as
+  `20·log10(|mean|)` dB (`current_db()`). Where `dc_blocker` *removes*
+  the DC component with a single-pole HPF, this meter *reports* it
+  without altering the signal — useful for diagnosing preamp bias
+  trim drift, ADC quantiser-midpoint offsets, sagging field-recorder
+  rails, accidental unipolar oscillators pushed through to the
+  output bus. A non-zero mean leaves the speaker cone parked off
+  centre, wastes a chunk of available headroom on a constant —
+  inaudible — push, and starves transient peaks of the linear range
+  they would otherwise have used. Algorithm: per-channel `f32` ring
+  of `N` samples plus an `f64` running sum `S = Σ x` updated
+  incrementally on every sample (`S ← S + x_new − x_old`); cost is
+  `O(1)` per sample, no sort, no deque, just the ring rotation.
+  Periodic per-window rebuild of `S` from the ring contents bounds
+  `f64` round-off drift on long streams (same cadence as
+  `crest_factor_meter` and `stereo_correlation_meter`).
+  Channel-link picks the per-channel mean with largest `|·|`, *sign
+  preserved* — so a `+0.05` channel and a `-0.20` channel report
+  `-0.20`, and equal-and-opposite biases (`+0.1` / `-0.1`) do not
+  cancel in the readout. Window default `400 ms` (matching the EBU
+  R128 short-term loudness window that `crest_factor_meter` and
+  `stereo_correlation_meter` also default to, so the three meters
+  share a time axis on a display); clamped to `[0.1, 10_000] ms`
+  and additionally to `[1, 192_000]` samples. Until the window
+  first fills the readout returns `0.0` (linear) /
+  `f32::NEG_INFINITY` (dB) so callers can branch on "not yet
+  ready"; `samples_seen()` exposes the count. `reset()` wipes all
+  per-channel state; `reset_max()` clears only the running-`|mean|`
+  high water mark. Registry entry `"dc_offset_meter"` accepts JSON
+  `window_ms` key. 16 hand-derived unit tests cover pass-through
+  byte preservation, warm-up zero/`NEG_INFINITY` semantics, constant
+  DC fidelity (positive and negative), bit-exact silence, zero-mean
+  integer-period sine, biased-sine DC isolation, steady-state
+  invariance, reset / reset_max separation, stereo channel-link by
+  largest-`|·|` with sign preserved, equal-and-opposite-bias
+  non-cancellation, streaming continuity (one call = two halves),
+  long-stream round-off drift bounded by the periodic rebuild,
+  construction-time window clamp, first-process sample-rate
+  resolution at 16 / 48 / 96 kHz, sample-rate-change re-derivation,
+  and the dB readout cross-check (`20·log10(0.5) = -6.02 dB`).
 - round 258: `zero_crossing_rate` — pass-through observer reporting
   the number of sign changes in the signal per unit time over a
   sliding rectangular window. The zero-crossing rate (`ZCR`) is the
