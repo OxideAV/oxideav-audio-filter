@@ -9,6 +9,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 258: `zero_crossing_rate` — pass-through observer reporting
+  the number of sign changes in the signal per unit time over a
+  sliding rectangular window. The zero-crossing rate (`ZCR`) is the
+  textbook scalar that counts `sign(x[n]) != sign(x[n-1])` events
+  over a window of `N` adjacent-sample pairs, exposed either as the
+  per-sample fraction `count / N ∈ [0, 1]` or — more usefully on an
+  audio meter — in crossings per second (Hz) as `count · fs / N`.
+  It is a cheap proxy for the spectral centroid: a pure sine at
+  `f_0` produces `≈ 2·f_0` crossings per second (every period has
+  exactly one positive-going and one negative-going crossing); an
+  alternating-sign signal saturates at `fs`; a constant DC or
+  bit-exact-silence signal sits at `0`. ZCR is the canonical front-end
+  feature for voiced/unvoiced speech classification — voiced phonemes
+  (vowels, nasals) sit at low ZCR (≤ 1500 Hz typical), unvoiced
+  fricatives ('s', 'f', 'sh') push the ZCR into the multiple-kHz
+  range — and is also widely used for tone-pitch proxying,
+  percussion vs harmonic separation, and silence / noise-floor
+  gating. Algorithm: per channel keep a ring of `N` boolean
+  "crossing flags" (`true` if `sign(x[t-1]) != sign(x[t])`) plus a
+  one-sample latch holding the most recent previously-seen sample.
+  For every incoming sample `x[t]`: form the pair `(prev, x[t])`,
+  compute `crossed = sign(prev) != sign(x[t])`, subtract the flag
+  about to be overwritten from the running `count` if the flag-ring
+  is already full, write the new flag in and add it to `count`,
+  update the latch to `x[t]`. That's `O(1)` per sample with no `f64`
+  drift bookkeeping (every increment / decrement is on a `u32`
+  counter rather than a floating-point sum-of-squares). The latch
+  survives across `process()` calls so streaming a long input as
+  many small frames is bit-identical to a single large call. Sign
+  is reduced to `{-1, +1}` with the convention `sign(0.0) = +1` so
+  a run of bit-exact zeros doesn't manufacture phantom crossings
+  (`f32::signum` returns `-0.0` for `-0.0` which would be exactly
+  that bug). Channel-link is by `max`: a transiently noisy channel
+  of a split stereo bed isn't masked by a quieter average on the
+  other — the crate's convention across all observation filters.
+  Window default `25 ms` (the canonical short-time speech-analysis
+  frame), clamped to `[0.1, 10_000] ms` at construction and to
+  `[1, 192_000]` samples (4 s at 48 kHz) after sample-rate
+  resolution. Until the flag-ring has filled at least once
+  (`pairs_seen < window_samples`), the readouts return `f32::NAN`
+  (rate Hz), `0.0` (fraction), and `0` (count) so callers can
+  branch on "not yet ready". `reset()` wipes all per-channel state
+  (rings, latches, counters); `reset_max()` clears only the running
+  max linear fraction. Registered in `registry::register` as
+  `"zero_crossing_rate"` accepting JSON `window_ms` key. Within the
+  observation family, the zero-crossing meter sits orthogonal to
+  [`CrestFactorMeter`] (peak-to-RMS ratio, no crossing-rate info),
+  [`TruePeakDetector`] (oversampled inter-sample peak, no
+  crossing-rate info), [`LoudnessITU`] (K-weighted integrated
+  loudness, insensitive to the per-sample sign sequence),
+  [`EnvelopeFollower`] (smoothed peak / RMS envelope, not a
+  ratio), and [`SilenceDetector`] (single binary above/below RMS
+  threshold flag); the zero-crossing meter alone exposes the
+  per-sample sign sequence, the spectral-centroid proxy widely used
+  in speech and music classification front-ends. 17 hand-derived
+  unit tests: pass-through preserves audio bytes byte-for-byte
+  (observation-only contract); before the window first fills the
+  readouts return `NAN` / `0.0` / `0`; constant DC yields a count
+  of exactly zero (no sign changes); bit-exact silence yields zero
+  (sign convention defends against the `-0.0` phantom-crossing
+  bug); alternating `±0.5` saturates the count to exactly `N` and
+  the rate to `fs`; a pure 1 kHz sine at 48 kHz with a window
+  holding an integer number of periods reads `≈ 2 · f_0` crossings
+  per second (allowing a small tolerance for the boundary-pair
+  count); doubling the sine frequency ~doubles the reported rate
+  across 500/1000/2000/4000 Hz; the readout is amplitude-invariant
+  (only the sign sequence matters); `reset()` wipes state, `reset_max()`
+  clears only the running max; stereo channel-link by max picks the
+  louder-ZCR channel; one-call equivalent to two-halves call (latch
+  survives the frame boundary); `window_ms` clamp at construction;
+  `window_samples` resolves correctly to 25 ms at multiple sample
+  rates (16/48/96 kHz); rate scales linearly with the sample rate
+  on a fresh window; `current_fraction()` always lies in `[0, 1]`
+  on deterministic xorshift32 noise; long-running alternating-sign
+  input keeps the count locked at exactly `N` (no drift, no
+  overflow, no double-counting). Test total rises from 377 to 394
+  (+17).
+
 - round 248: `comb_filter` — tunable single-tap comb filter exposing
   both the feedforward FIR `y[n] = x[n] + g · x[n − D]` and the
   feedback IIR `y[n] = x[n] + g · damped(y[n − D])` forms behind a

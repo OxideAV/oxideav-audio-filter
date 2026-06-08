@@ -111,6 +111,8 @@ pub fn register(ctx: &mut RuntimeContext) {
     );
     ctx.filters
         .register("comb_filter", Box::new(make_comb_filter));
+    ctx.filters
+        .register("zero_crossing_rate", Box::new(make_zero_crossing_rate));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -2058,6 +2060,41 @@ fn make_comb_filter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Strea
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(flt),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "zero_crossing_rate", "window_ms": 25.0}` — pass-through
+/// observer reporting the number of sign changes in the signal per
+/// unit time (crossings per second) over a sliding rectangular
+/// window. Window defaults to 25 ms (the canonical short-time
+/// speech-analysis frame); the JSON `window_ms` key overrides it.
+/// Observation-only; consumers poll
+/// [`current_rate_hz`](crate::ZeroCrossingRateMeter::current_rate_hz)
+/// /
+/// [`current_fraction`](crate::ZeroCrossingRateMeter::current_fraction)
+/// /
+/// [`current_count`](crate::ZeroCrossingRateMeter::current_count)
+/// on the meter handle directly. Per-sample work is `O(1)` via a
+/// ring buffer of `N + 1` samples and an incrementally-updated
+/// running count.
+fn make_zero_crossing_rate(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::ZeroCrossingRateMeter;
+    let p = params.as_object();
+    let window_ms = p
+        .and_then(|m| m.get("window_ms"))
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(crate::zero_crossing_rate::ZCR_DEFAULT_WINDOW_MS);
+    let m = ZeroCrossingRateMeter::with_window_ms(window_ms);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
         in_port,
         out_port,
     )))

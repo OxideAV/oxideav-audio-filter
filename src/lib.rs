@@ -210,6 +210,22 @@
 //!   bilinear transform of `H_pre(s) = (1 + s·τ) / (1 + s·τ/G)` and
 //!   its inverse; `pre · de` cascades to the identity by
 //!   construction (within `f64` round-off).
+//! - [`ZeroCrossingRateMeter`] — pass-through observer reporting the
+//!   number of sign changes in the signal per unit time over a
+//!   sliding rectangular window (default 25 ms, the canonical speech-
+//!   analysis short-time frame). Per-sample running count is `O(1)`
+//!   via a ring buffer of `N + 1` samples (one extra slot so we can
+//!   reach the trailing sample's predecessor to subtract its
+//!   contribution as it rotates out). Distinct from the energy /
+//!   amplitude observers — [`CrestFactorMeter`] reports peak-to-RMS,
+//!   [`TruePeakDetector`](true_peak_detector::TruePeakDetector)
+//!   reports oversampled inter-sample peak, [`LoudnessITU`](loudness::LoudnessITU)
+//!   reports K-weighted integrated loudness, [`EnvelopeFollower`](envelope_follower::EnvelopeFollower)
+//!   reports a smoothed envelope; the zero-crossing meter alone
+//!   exposes the per-sample sign sequence, the proxy for spectral
+//!   centroid that classifies voiced vs unvoiced speech and tone vs
+//!   percussion. Rate in Hz scales to `≈ 2·f₀` on a pure sine and
+//!   saturates at `fs` on an alternating-sign signal.
 
 pub mod adaptive_noise_gate;
 pub mod auto_pan;
@@ -269,6 +285,7 @@ pub mod vibrato;
 pub mod volume;
 pub mod wah;
 pub mod white_noise;
+pub mod zero_crossing_rate;
 
 pub use adaptive_noise_gate::AdaptiveNoiseGate;
 pub use auto_pan::AutoPan;
@@ -326,6 +343,7 @@ pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use wah::Wah;
 pub use white_noise::WhiteNoise;
+pub use zero_crossing_rate::ZeroCrossingRateMeter;
 
 use oxideav_core::{AudioFrame, Result, SampleFormat};
 
