@@ -115,6 +115,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("zero_crossing_rate", Box::new(make_zero_crossing_rate));
     ctx.filters
         .register("dc_offset_meter", Box::new(make_dc_offset_meter));
+    ctx.filters
+        .register("stereo_balance_meter", Box::new(make_stereo_balance_meter));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -2124,6 +2126,46 @@ fn make_dc_offset_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn S
         .map(|v| v as f32)
         .unwrap_or(crate::dc_offset_meter::DCM_DEFAULT_WINDOW_MS);
     let m = DcOffsetMeter::with_window_ms(window_ms);
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(m),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "stereo_balance_meter", "window_ms": 400.0}` —
+/// pass-through observer reporting the left / right *energy* balance
+/// `(R_rms - L_rms) / (R_rms + L_rms) ∈ [-1, +1]` of a stereo signal
+/// over a sliding rectangular window. `-1` = all energy on the left,
+/// `0` = centred, `+1` = all energy on the right. Window defaults to
+/// 400 ms (matching the other R128-aligned meters so they share a
+/// time axis on a display); the JSON `window_ms` key overrides it.
+/// Observation-only; consumers poll
+/// [`current`](crate::StereoBalanceMeter::current) /
+/// [`rms_left`](crate::StereoBalanceMeter::rms_left) /
+/// [`rms_right`](crate::StereoBalanceMeter::rms_right) /
+/// [`max_abs`](crate::StereoBalanceMeter::max_abs) on the meter handle
+/// directly. The level complement to `stereo_correlation_meter`
+/// (phase): correlation is scale-invariant and blind to a level
+/// imbalance, balance reports exactly that. Per-sample work is `O(1)`
+/// via per-channel ring buffers and incrementally-updated
+/// sums-of-squares; periodic per-window rebuild bounds `f64`
+/// round-off drift on long streams. Mono / multichannel input passes
+/// through with the meter state untouched.
+fn make_stereo_balance_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::StereoBalanceMeter;
+    let p = params.as_object();
+    let window_ms = p
+        .and_then(|m| m.get("window_ms"))
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(crate::stereo_balance_meter::SBM_DEFAULT_WINDOW_MS);
+    let m = StereoBalanceMeter::with_window_ms(window_ms);
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
         name: "audio".to_string(),

@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 272: `stereo_balance_meter` — pass-through observer reporting
+  the left / right *energy* balance of a stereo signal over a sliding
+  rectangular window. The textbook normalised level-difference scalar
+  `B = (R_rms - L_rms) / (R_rms + L_rms) ∈ [-1, +1]` says where the
+  stereo energy sits: `B = 0` for a centred image (equal-energy
+  channels — mono panned dead-centre or a symmetric bed), `B = -1`
+  when all energy is on the left (right silent), `B = +1` when all
+  energy is on the right, `+1/3` when the right channel is twice as
+  loud as the left, `-1/3` for the mirror case. This is the *level*
+  complement to `stereo_correlation_meter`: correlation reports the
+  inter-channel *phase* relationship and is mean-centred and
+  scale-invariant, so it is blind to a level imbalance — two
+  perfectly correlated channels at `+12 dB` / `-12 dB` still read
+  `ρ = +1`. Balance reports exactly the dimension correlation throws
+  away, and the two meters together pin down both axes of a stereo
+  image (phase + level) on a shared time axis. A persistent non-zero
+  balance flags an accidental pan offset, a channel-trim mismatch in
+  the capture chain, one dead or intermittent channel, or a mono
+  source mis-routed to a single leg of a stereo bus. Algorithm:
+  per-channel ring of `N` samples plus an `f64` running
+  sum-of-squares `Q = Σ x²` updated incrementally (`Q ← Q + x_new² -
+  x_old²`) at `O(1)` per sample; windowed RMS is `sqrt(Q / N)` and the
+  balance follows in closed form. Periodic per-window rebuild of both
+  sums bounds `f64` round-off drift on long streams (same cadence as
+  `crest_factor_meter` / `stereo_correlation_meter`). Stereo input
+  only — mono and multichannel (channel count not equal to two)
+  layouts pass through unchanged with the meter state untouched.
+  Window default `400 ms` (matching the EBU R128 short-term loudness
+  window the other R128-aligned meters default to), clamped to
+  `[0.1, 10_000] ms` and additionally to `[1, 192_000]` samples.
+  Until the window first fills the readout returns the neutral `0.0`
+  (centred); when both channels are bit-exact silent over the window
+  the balance is undefined and likewise reads `0.0`. Consumers poll
+  `current()` (balance), `rms_left()` / `rms_right()` (per-channel
+  windowed RMS), `max_abs()` / `reset_max()` (running `|balance|`
+  high-water mark), and `samples_seen()`; `reset()` wipes all state.
+  Registry entry `"stereo_balance_meter"` accepts JSON `window_ms`
+  key. 19 hand-derived unit tests cover pass-through byte
+  preservation, warm-up neutral-zero, the four canonical readings
+  (centred / hard-left `-1` / hard-right `+1` / `±1/3`), per-channel
+  RMS-equals-constant-level cross-check with derived balance,
+  bit-exact-silence neutral reading, the correlated-but-unequal-level
+  case that distinguishes balance from correlation, channel-swap sign
+  flip, mono pass-through with untouched state, reset / reset_max
+  separation, streaming continuity (one call = two halves),
+  long-stream round-off drift bounded by the periodic rebuild,
+  construction-time window clamp, sample-rate-resolved window at
+  16 / 48 / 96 kHz, and sample-rate-change re-derivation.
 - round 263: `dc_offset_meter` — pass-through observer reporting the
   per-channel running mean (DC component) of the signal over a
   sliding rectangular window. The textbook scalar `mean = (1/N) · Σ
