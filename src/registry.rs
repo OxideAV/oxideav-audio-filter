@@ -117,6 +117,7 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("dc_offset_meter", Box::new(make_dc_offset_meter));
     ctx.filters
         .register("stereo_balance_meter", Box::new(make_stereo_balance_meter));
+    ctx.filters.register("dither", Box::new(make_dither));
 }
 
 oxideav_core::register!("audio_filter", register);
@@ -2157,6 +2158,74 @@ fn make_dc_offset_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn S
 /// sums-of-squares; periodic per-window rebuild bounds `f64`
 /// round-off drift on long streams. Mono / multichannel input passes
 /// through with the meter state untouched.
+/// `{"filter": "dither", "bits": 16, "mode": "tpdf", "shaping": "off",
+/// "seed": 305419896}` — word-length-reduction requantizer with
+/// dither + error-feedback noise shaping. Rounds every sample onto
+/// the exact `bits`-wide signed code grid (`Δ = 2^(1-bits)`, `bits`
+/// clamped to `[2, 24]`, default 16) so a downstream fixed-point
+/// encode is lossless. `mode` selects the dither density: `"tpdf"`
+/// (default — triangular, mean and variance of the error
+/// signal-independent), `"rpdf"` (uniform — zero-mean error but
+/// signal-dependent variance), `"none"` (bare rounding, for
+/// measurement only). `shaping` selects the error-feedback noise
+/// transfer function: `"off"` (flat, default), `"first"`
+/// (`1 - z⁻¹`, +6 dB/oct tilt), `"second"` (`(1 - z⁻¹)²`,
+/// +12 dB/oct tilt — noise pushed out of the sensitive low/mid
+/// band). Optional `seed` fixes the splitmix64 dither PRNG for
+/// bit-reproducible output. The transparency counterpart to the
+/// creative `bitcrusher` (which has no dither, no shaping, and an
+/// aliasing sample-and-hold stage).
+fn make_dither(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{Dither, DitherMode, NoiseShaping};
+    let p = params.as_object();
+    let bits = p
+        .and_then(|m| m.get("bits"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(16) as u8;
+    let mode_str = p
+        .and_then(|m| m.get("mode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("tpdf");
+    let mode = match mode_str {
+        "none" => DitherMode::None,
+        "rpdf" => DitherMode::Rpdf,
+        "tpdf" => DitherMode::Tpdf,
+        other => {
+            return Err(Error::invalid(format!(
+                "job: filter 'dither' unknown mode '{other}' (expected none/rpdf/tpdf)"
+            )));
+        }
+    };
+    let shaping_str = p
+        .and_then(|m| m.get("shaping"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("off");
+    let shaping = match shaping_str {
+        "off" => NoiseShaping::Off,
+        "first" => NoiseShaping::FirstOrder,
+        "second" => NoiseShaping::SecondOrder,
+        other => {
+            return Err(Error::invalid(format!(
+                "job: filter 'dither' unknown shaping '{other}' (expected off/first/second)"
+            )));
+        }
+    };
+    let flt = match p.and_then(|m| m.get("seed")).and_then(|v| v.as_u64()) {
+        Some(seed) => Dither::with_seed(bits, mode, shaping, seed),
+        None => Dither::with(bits, mode, shaping),
+    };
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(flt),
+        in_port,
+        out_port,
+    )))
+}
+
 fn make_stereo_balance_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
     use crate::StereoBalanceMeter;
     let p = params.as_object();

@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 280: `dither` — word-length-reduction requantizer with TPDF /
+  RPDF dither and first- / second-order error-feedback noise shaping.
+  The transparency-grade end-of-chain primitive for a float pipeline
+  feeding a fixed-point encode: rounds every sample onto the exact
+  `bits`-wide signed mid-tread code grid (`Δ = 2^(1-bits)`, `bits`
+  clamped to `[2, 24]`, default 16 → every output is an exact 16-bit
+  PCM code) while decorrelating the rounding error from the
+  programme. Bare rounding error is a deterministic function of the
+  input — harmonic distortion on low-level periodic material and a
+  deadband that erases any sine under `Δ/2` outright. Non-subtractive
+  dither fixes this per the classical moment analysis (Schuchman
+  condition on the dither's characteristic function): RPDF (uniform,
+  peak-to-peak `Δ`) zeroes the error *mean* for every input but
+  leaves the variance signal-dependent (noise modulation); TPDF
+  (triangular, peak-to-peak `2Δ`, sum of two RPDF draws — the
+  default) renders mean *and* variance signal-independent at a
+  constant total `Δ²/4` (`Δ²/12` quantisation + `2·Δ²/12` dither,
+  i.e. +4.77 dB over bare rounding). Optional error feedback
+  `v[n] = x[n] - c₁e[n-1] - c₂e[n-2]` shapes the noise through
+  `NTF = 1 - C(z)` while the signal passes untouched: first order
+  (`c = [1]`, `NTF = 1 - z⁻¹`, `|NTF|² = 4sin²(ω/2)`) tilts the
+  noise +6 dB/oct with a DC zero at total power ×2; second order
+  (`c = [2, -1]`, `NTF = (1 - z⁻¹)²`, `|NTF|² = 16sin⁴(ω/2)`)
+  doubles the DC zero at total power ×6, pushing noise out of the
+  ear's sensitive low/mid band into the top octave. Dither PRNG is
+  the same splitmix64 as the noise generators, seedable for
+  bit-reproducible output; per-channel feedback state, channels draw
+  mutually independent dither. Distinct from `bitcrusher` (creative
+  degradation: bare quantisation + aliasing sample-and-hold, no
+  dither, no shaping). Registry entry `"dither"` accepts JSON `bits`
+  / `mode` (`"none"` / `"rpdf"` / `"tpdf"`) / `shaping` (`"off"` /
+  `"first"` / `"second"`) / `seed` keys. 14 hand-derived unit tests:
+  exact code-grid + code-range membership under dither + 2nd-order
+  shaping, bare-rounding `Δ/2` / RPDF `Δ` / TPDF `3Δ/2` error
+  bounds, TPDF zero-mean error, the deadband test pair (0.4Δ sine →
+  exact silence undithered, fundamental FFT bin survives ≈ 25× above
+  the noise floor with TPDF), Parseval check of measured error power
+  against the closed-form NTF gains (×1 / ×2 / ×6), 2nd-order
+  spectral tilt (low band < 0.35×, top band > 2× vs flat),
+  full-scale code clamps (`-1` exact, `+1 → 1 - Δ`), bits clamp,
+  seed determinism, per-channel dither independence, and bit-exact
+  streaming continuity across a frame split.
 - round 272: `stereo_balance_meter` — pass-through observer reporting
   the left / right *energy* balance of a stereo signal over a sliding
   rectangular window. The textbook normalised level-difference scalar
