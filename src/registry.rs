@@ -441,10 +441,14 @@ fn make_downmix(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFil
 /// `{"filter": "biquad", "kind": "low_pass", "cutoff_hz": 1000.0, "q": 0.707}`.
 ///
 /// Required: `kind` — one of `"low_pass"`, `"high_pass"`, `"band_pass"`,
-/// `"notch"`, `"peaking"`, `"low_shelf"`, `"high_shelf"`.
+/// `"band_pass_0db"`, `"notch"`, `"peaking"`, `"low_shelf"`,
+/// `"high_shelf"`, `"low_shelf_slope"`, `"high_shelf_slope"`,
+/// `"all_pass"`.
 ///
-/// `cutoff_hz` / `center_hz` and `q` are required for every kind;
-/// `gain_db` is required for `peaking` / `low_shelf` / `high_shelf`.
+/// `cutoff_hz` / `center_hz` is required for every kind; `q` defaults
+/// to `1/√2`. `gain_db` is required for `peaking` / shelves. The
+/// `*_shelf_slope` kinds take `slope` (cookbook `S`, default `1.0`)
+/// instead of `q`.
 fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
     use crate::biquad::{Biquad, BiquadKind};
 
@@ -460,11 +464,15 @@ fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
         as f32;
     let q = get_f64("q").unwrap_or(std::f64::consts::FRAC_1_SQRT_2) as f32;
     let gain_db = get_f64("gain_db").unwrap_or(0.0) as f32;
+    let slope = get_f64("slope").unwrap_or(1.0) as f32;
 
     let kind = match kind_name {
         "low_pass" | "lpf" => BiquadKind::LowPass { cutoff_hz: freq, q },
         "high_pass" | "hpf" => BiquadKind::HighPass { cutoff_hz: freq, q },
         "band_pass" | "bpf" => BiquadKind::BandPass { center_hz: freq, q },
+        "band_pass_0db" | "band_pass_constant_peak" | "bpf0" => {
+            BiquadKind::BandPassConstantPeak { center_hz: freq, q }
+        }
         "notch" => BiquadKind::Notch { center_hz: freq, q },
         "peaking" | "peak" => BiquadKind::Peaking {
             center_hz: freq,
@@ -479,6 +487,16 @@ fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
         "high_shelf" | "highshelf" => BiquadKind::HighShelf {
             cutoff_hz: freq,
             q,
+            gain_db,
+        },
+        "low_shelf_slope" => BiquadKind::LowShelfSlope {
+            cutoff_hz: freq,
+            slope,
+            gain_db,
+        },
+        "high_shelf_slope" => BiquadKind::HighShelfSlope {
+            cutoff_hz: freq,
+            slope,
             gain_db,
         },
         "all_pass" | "allpass" | "apf" => BiquadKind::AllPass { center_hz: freq, q },
@@ -822,10 +840,14 @@ fn make_equalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamF
                 .and_then(|v| v.as_f64())
                 .unwrap_or(std::f64::consts::FRAC_1_SQRT_2) as f32;
             let gain_db = band.get("gain_db").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+            let slope = band.get("slope").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
             let bk = match kind {
                 "low_pass" | "lpf" => BiquadKind::LowPass { cutoff_hz: freq, q },
                 "high_pass" | "hpf" => BiquadKind::HighPass { cutoff_hz: freq, q },
                 "band_pass" | "bpf" => BiquadKind::BandPass { center_hz: freq, q },
+                "band_pass_0db" | "band_pass_constant_peak" | "bpf0" => {
+                    BiquadKind::BandPassConstantPeak { center_hz: freq, q }
+                }
                 "notch" => BiquadKind::Notch { center_hz: freq, q },
                 "peaking" | "peak" => BiquadKind::Peaking {
                     center_hz: freq,
@@ -842,6 +864,17 @@ fn make_equalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamF
                     q,
                     gain_db,
                 },
+                "low_shelf_slope" => BiquadKind::LowShelfSlope {
+                    cutoff_hz: freq,
+                    slope,
+                    gain_db,
+                },
+                "high_shelf_slope" => BiquadKind::HighShelfSlope {
+                    cutoff_hz: freq,
+                    slope,
+                    gain_db,
+                },
+                "all_pass" | "allpass" | "apf" => BiquadKind::AllPass { center_hz: freq, q },
                 other => {
                     return Err(Error::invalid(format!(
                         "equalizer: unknown band kind {other:?}"

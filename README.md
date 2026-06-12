@@ -12,7 +12,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **resample** — polyphase windowed-sinc rate conversion
 - **spectrogram** — STFT renderer with PNG / video output
 - **downmix** — channel-layout fold-down (LoRo / LtRt / Average / Binaural)
-- **biquad** — eight-config IIR EQ family (LPF / HPF / BPF / notch / peaking / low-shelf / high-shelf / all-pass) with DF-II-T `f64` state
+- **biquad** — eleven-config IIR EQ family with DF-II-T `f64` state, covering the complete staged EQ-cookbook catalogue (`docs/audio/filter/audio-eq-cookbook.html`): LPF / HPF / BPF in both constant-skirt (peak gain = Q) and constant-0-dB-peak variants / notch / peaking / low + high shelves in both Q- and shelf-slope-(S)-parameterised forms (`α = (sinω/2)·√((A+1/A)(1/S−1)+2)`; S = 1 → steepest monotonic transition, equal to Q = 1/√2 for any gain) / all-pass. Closed-form `magnitude_response_db(f, fs)` evaluator for response plotting and design verification. Frequency-response identities asserted analytically to ≤ 1e-9 dB: constant-peak BPF = 0 dB at fc for Q ∈ {0.3 … 32}; skirt − peak = 20·log10(Q) dB at every frequency; shelf midpoint = gain/2 dB exactly; shelf DC/Nyquist plateaus ± 0.01 dB; S = 1 monotonic over a 1/12-octave 20 Hz–20 kHz sweep while S = 2 overshoots ±1.38 dB
 - **compressor** — peak compressor with soft-knee, attack/release follower, and make-up gain
 - **limiter** — brickwall peak limiter with optional look-ahead (0..=2048 samples)
 - **dc_blocker** — single-pole IIR HPF (`y[n] = x[n] - x[n-1] + R·y[n-1]`) for DC-offset removal
@@ -24,7 +24,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **chorus** — 1..=4 LFO-modulated short delay taps with phase-offset voices
 - **flanger** — short-delay feedback comb (1..=15 ms, swept resonance)
 - **phaser** — N (2..=12) cascaded first-order all-pass sections with LFO-swept cutoffs
-- **equalizer** — builder over N `Biquad` sections in series (low/high-pass, BPF, notch, peaking, shelves)
+- **equalizer** — builder over N `Biquad` sections in series (low/high-pass, both BPF variants, notch, peaking, Q- and slope-parameterised shelves, all-pass)
 - **white_noise** / **pink_noise** / **brown_noise** — splitmix64-seeded generators with flat / 1/f / 1/f² spectra
 - **silence_detector** — pass-through observer with attack/release RMS envelope + hold-threshold flag
 - **vibrato** — LFO-modulated fractional-delay pitch shift (pitch counterpart to `tremolo`)

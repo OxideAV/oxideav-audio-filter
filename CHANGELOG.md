@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 284: `biquad` — completed the staged EQ-cookbook catalogue
+  (`docs/audio/filter/audio-eq-cookbook.html`), growing the family
+  from eight to eleven configurations. New `BiquadKind` variants:
+  `BandPassConstantPeak` (numerator `(α, 0, −α)` — exactly 0 dB at
+  the centre frequency for every `Q`, so `Q` is a pure bandwidth
+  knob; the existing constant-skirt `BandPass` peaks at
+  `20·log10(Q)` dB), plus `LowShelfSlope` / `HighShelfSlope`
+  parameterised by the cookbook shelf slope `S` via
+  `α = (sinω/2)·√((A + 1/A)(1/S − 1) + 2)` instead of `Q`
+  (`S = 1` → the steepest monotonic transition, identical to
+  `Q = 1/√2` for any gain; `S > 1` steepens further with response
+  overshoot; out-of-range `S` for the chosen gain is clamped to keep
+  `α` real). New convenience constructors
+  (`Biquad::band_pass_constant_peak` / `low_shelf_slope` /
+  `high_shelf_slope`) and a closed-form
+  `Biquad::magnitude_response_db(freq_hz, sample_rate_hz)` evaluator
+  (`|H(e^{jω})|` straight from the compiled coefficients — pure
+  function, no state touched) for response plotting and analytic
+  design assertions. Registry kinds `band_pass_0db` (aliases
+  `band_pass_constant_peak` / `bpf0`), `low_shelf_slope` /
+  `high_shelf_slope` (JSON `slope` key, default 1.0) on both the
+  `biquad` and `equalizer` factories; `equalizer` bands also accept
+  `all_pass` now. Nine new frequency-response assertion tests pin
+  the design algebra at ≤ 1e-9 dB: constant-peak BPF unity at fc for
+  `Q ∈ {0.3, 1/√2, 2, 8, 32}`; skirt-vs-peak separation exactly
+  `20·log10(Q)` dB at every probe frequency; `S = 1` shelf ≡
+  `Q = 1/√2` shelf across gains ±6 / ±15 dB; shelf midpoint gain
+  exactly `gain_db/2`; DC/Nyquist plateaus within 0.01 dB; `S = 1`
+  monotonic over a 1/12-octave 20 Hz–20 kHz sweep while `S = 2`
+  overshoots (measured +1.38 dB over the +12 dB shelf top and
+  −1.38 dB under unity); peaking analytic-vs-recurrence cross-check
+  (exactly +6 dB at fc analytically, sine-measured within 0.6 dB).
+
 - round 280: `dither` — word-length-reduction requantizer with TPDF /
   RPDF dither and first- / second-order error-feedback noise shaping.
   The transparency-grade end-of-chain primitive for a float pipeline

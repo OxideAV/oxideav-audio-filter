@@ -1,6 +1,6 @@
 //! Biquadratic IIR EQ filter family.
 //!
-//! Implements eight second-order IIR configurations sharing a single
+//! Implements eleven second-order IIR configurations sharing a single
 //! direct-form-II-transposed core. State is held in `f64` to keep the
 //! recurrence numerically stable for low cutoff / high-Q settings; the
 //! per-sample input and output remain `f32`.
@@ -20,7 +20,7 @@
 //!
 //! # Coefficient derivation
 //!
-//! All seven configurations are derived from the **bilinear transform**
+//! All configurations are derived from the **bilinear transform**
 //! of an analog prototype: starting from `H(s)` for the analog filter,
 //! pre-warp the cutoff with `ω = 2π·f_c / f_s`, substitute
 //! `s ← (1 - z⁻¹)/(1 + z⁻¹)` (pre-warped), and gather the
@@ -43,6 +43,20 @@
 //! filters operate on amplitude, the `/40` instead of `/20` accounts
 //! for the half-gain at the corner).
 //!
+//! The cookbook offers three equivalent parameterisations of the skirt
+//! term `α`; this module exposes two of them:
+//!
+//! ```text
+//! α = sinω / (2Q)                                   (case: Q)
+//! α = (sinω / 2) · √((A + 1/A)·(1/S − 1) + 2)       (case: S, shelves)
+//! ```
+//!
+//! `S` is the cookbook *shelf slope*: at `S = 1` the shelf is as steep
+//! as it can be while the gain remains monotonic in frequency; the
+//! dB/octave slope at the midpoint stays proportional to `S` for fixed
+//! `f_c / f_s` and `gain_db`. The two cases are related by
+//! `1/Q = √((A + 1/A)·(1/S − 1) + 2)`.
+//!
 //! # Public API
 //!
 //! ```
@@ -59,7 +73,7 @@ use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};
 use oxideav_core::{AudioFrame, Result};
 
-/// One of the eight supported biquad configurations.
+/// One of the eleven supported biquad configurations.
 ///
 /// All variants are derived from the bilinear transform of their analog
 /// prototypes; see the module docs.
@@ -71,6 +85,13 @@ pub enum BiquadKind {
     HighPass { cutoff_hz: f32, q: f32 },
     /// Constant-skirt-gain band-pass; peak gain ≈ Q at the centre.
     BandPass { center_hz: f32, q: f32 },
+    /// Constant-0-dB-peak-gain band-pass. Same pole pair as
+    /// [`BandPass`](BiquadKind::BandPass) but the numerator is scaled
+    /// by `1/Q` (analog prototype `H(s) = (s/Q) / (s² + s/Q + 1)`), so
+    /// the magnitude at the centre frequency is exactly unity for
+    /// every `Q` — `Q` only sets the bandwidth. This is the variant to
+    /// reach for when band-passing should not change programme level.
+    BandPassConstantPeak { center_hz: f32, q: f32 },
     /// Notch (band-stop).
     Notch { center_hz: f32, q: f32 },
     /// Parametric mid-EQ bell. Positive `gain_db` boosts, negative cuts.
@@ -89,6 +110,25 @@ pub enum BiquadKind {
     HighShelf {
         cutoff_hz: f32,
         q: f32,
+        gain_db: f32,
+    },
+    /// Low shelf parameterised by the cookbook *shelf slope* `S`
+    /// instead of `Q`. `slope = 1.0` gives the steepest transition
+    /// that keeps the gain monotonic in frequency; `slope < 1`
+    /// relaxes (widens) the transition; `slope > 1` steepens it
+    /// further at the cost of response overshoot around the corner.
+    /// `cutoff_hz` is the shelf *midpoint* frequency (gain is exactly
+    /// `gain_db / 2` there).
+    LowShelfSlope {
+        cutoff_hz: f32,
+        slope: f32,
+        gain_db: f32,
+    },
+    /// High shelf parameterised by the shelf slope `S` — mirror of
+    /// [`LowShelfSlope`](BiquadKind::LowShelfSlope).
+    HighShelfSlope {
+        cutoff_hz: f32,
+        slope: f32,
         gain_db: f32,
     },
     /// Second-order all-pass — `|H(e^{jω})| ≡ 1` for every `ω` (flat
@@ -119,6 +159,9 @@ impl Coeffs {
             BiquadKind::LowPass { cutoff_hz, q } => low_pass(fs, cutoff_hz as f64, q as f64),
             BiquadKind::HighPass { cutoff_hz, q } => high_pass(fs, cutoff_hz as f64, q as f64),
             BiquadKind::BandPass { center_hz, q } => band_pass(fs, center_hz as f64, q as f64),
+            BiquadKind::BandPassConstantPeak { center_hz, q } => {
+                band_pass_constant_peak(fs, center_hz as f64, q as f64)
+            }
             BiquadKind::Notch { center_hz, q } => notch(fs, center_hz as f64, q as f64),
             BiquadKind::Peaking {
                 center_hz,
@@ -135,6 +178,16 @@ impl Coeffs {
                 q,
                 gain_db,
             } => high_shelf(fs, cutoff_hz as f64, q as f64, gain_db as f64),
+            BiquadKind::LowShelfSlope {
+                cutoff_hz,
+                slope,
+                gain_db,
+            } => low_shelf_slope(fs, cutoff_hz as f64, slope as f64, gain_db as f64),
+            BiquadKind::HighShelfSlope {
+                cutoff_hz,
+                slope,
+                gain_db,
+            } => high_shelf_slope(fs, cutoff_hz as f64, slope as f64, gain_db as f64),
             BiquadKind::AllPass { center_hz, q } => all_pass(fs, center_hz as f64, q as f64),
         }
     }
@@ -153,6 +206,21 @@ fn warp(fs: f64, fc: f64, q: f64) -> WarpVars {
     let sinw = w.sin();
     let q = q.max(1.0e-6);
     let alpha = sinw / (2.0 * q);
+    WarpVars { cosw, sinw, alpha }
+}
+
+/// Shelf-slope (case S) skirt parameter:
+/// `α = (sinω/2)·√((A + 1/A)(1/S − 1) + 2)`. The radicand goes
+/// negative when `S` is pushed past the largest value the chosen gain
+/// supports (`1/S ≥ 1 − 2/(A + 1/A)`); we clamp it at a tiny positive
+/// floor so `α` stays real (equivalent to capping `S` at that maximum).
+fn warp_slope(fs: f64, fc: f64, slope: f64, a_gain: f64) -> WarpVars {
+    let w = 2.0 * std::f64::consts::PI * (fc.max(1.0e-6) / fs);
+    let cosw = w.cos();
+    let sinw = w.sin();
+    let s = slope.max(1.0e-6);
+    let radicand = ((a_gain + 1.0 / a_gain) * (1.0 / s - 1.0) + 2.0).max(1.0e-12);
+    let alpha = (sinw / 2.0) * radicand.sqrt();
     WarpVars { cosw, sinw, alpha }
 }
 
@@ -209,6 +277,22 @@ fn band_pass(fs: f64, fc: f64, q: f64) -> Coeffs {
     normalise(b0, b1, b2, a0, a1, a2)
 }
 
+/// Constant-0-dB-peak-gain band-pass. Analog
+/// `H(s) = (s/Q) / (s² + s/Q + 1)` — the constant-skirt numerator
+/// divided by `Q` — bilinear → `b = (α, 0, -α)` with the same
+/// denominator, so `|H| = 1` exactly at the centre frequency for any
+/// `Q`.
+fn band_pass_constant_peak(fs: f64, fc: f64, q: f64) -> Coeffs {
+    let v = warp(fs, fc, q);
+    let b0 = v.alpha;
+    let b1 = 0.0;
+    let b2 = -v.alpha;
+    let a0 = 1.0 + v.alpha;
+    let a1 = -2.0 * v.cosw;
+    let a2 = 1.0 - v.alpha;
+    normalise(b0, b1, b2, a0, a1, a2)
+}
+
 /// Notch. Analog `H(s) = (s² + 1) / (s² + s/Q + 1)`, bilinear →
 /// `b = (1, -2cosω, 1)`.
 fn notch(fs: f64, fc: f64, q: f64) -> Coeffs {
@@ -238,12 +322,11 @@ fn peaking(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
     normalise(b0, b1, b2, a0, a1, a2)
 }
 
-/// Low shelf. Uses `A = 10^(gain_db/40)` and a `β = 2√A·α` skirt term;
+/// Low-shelf coefficient assembly from precomputed warp variables.
+/// Uses `A = 10^(gain_db/40)` and a `β = 2√A·α` skirt term;
 /// derivation: bilinear of `H(s) = A · (s² + (√A/Q)·s + A) /
 /// (A·s² + (√A/Q)·s + 1)`.
-fn low_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
-    let v = warp(fs, fc, q);
-    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+fn low_shelf_from(v: WarpVars, a_gain: f64) -> Coeffs {
     let sqrt_a = a_gain.sqrt();
     let beta = 2.0 * sqrt_a * v.alpha;
     let b0 = a_gain * ((a_gain + 1.0) - (a_gain - 1.0) * v.cosw + beta);
@@ -255,10 +338,9 @@ fn low_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
     normalise(b0, b1, b2, a0, a1, a2)
 }
 
-/// High shelf — symmetric to [`low_shelf`] with the cosω signs flipped.
-fn high_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
-    let v = warp(fs, fc, q);
-    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+/// High-shelf coefficient assembly — symmetric to [`low_shelf_from`]
+/// with the cosω signs flipped.
+fn high_shelf_from(v: WarpVars, a_gain: f64) -> Coeffs {
     let sqrt_a = a_gain.sqrt();
     let beta = 2.0 * sqrt_a * v.alpha;
     let b0 = a_gain * ((a_gain + 1.0) + (a_gain - 1.0) * v.cosw + beta);
@@ -268,6 +350,30 @@ fn high_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
     let a1 = 2.0 * ((a_gain - 1.0) - (a_gain + 1.0) * v.cosw);
     let a2 = (a_gain + 1.0) - (a_gain - 1.0) * v.cosw - beta;
     normalise(b0, b1, b2, a0, a1, a2)
+}
+
+/// Low shelf, `Q`-parameterised skirt.
+fn low_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
+    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+    low_shelf_from(warp(fs, fc, q), a_gain)
+}
+
+/// High shelf, `Q`-parameterised skirt.
+fn high_shelf(fs: f64, fc: f64, q: f64, gain_db: f64) -> Coeffs {
+    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+    high_shelf_from(warp(fs, fc, q), a_gain)
+}
+
+/// Low shelf, slope-(S)-parameterised skirt (see [`warp_slope`]).
+fn low_shelf_slope(fs: f64, fc: f64, slope: f64, gain_db: f64) -> Coeffs {
+    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+    low_shelf_from(warp_slope(fs, fc, slope, a_gain), a_gain)
+}
+
+/// High shelf, slope-(S)-parameterised skirt (see [`warp_slope`]).
+fn high_shelf_slope(fs: f64, fc: f64, slope: f64, gain_db: f64) -> Coeffs {
+    let a_gain = 10.0_f64.powf(gain_db / 40.0);
+    high_shelf_from(warp_slope(fs, fc, slope, a_gain), a_gain)
 }
 
 /// Second-order all-pass. Analog prototype `H(s) = (s² − s/Q + 1) /
@@ -346,6 +452,13 @@ impl Biquad {
         bq.ensure_coeffs(sample_rate_hz);
         bq
     }
+    /// Convenience: constant-0-dB-peak band-pass (`Q` sets bandwidth
+    /// only; centre-frequency gain is exactly unity).
+    pub fn band_pass_constant_peak(sample_rate_hz: u32, center_hz: f32, q: f32) -> Self {
+        let mut bq = Self::new(BiquadKind::BandPassConstantPeak { center_hz, q });
+        bq.ensure_coeffs(sample_rate_hz);
+        bq
+    }
     /// Convenience: notch.
     pub fn notch(sample_rate_hz: u32, center_hz: f32, q: f32) -> Self {
         let mut bq = Self::new(BiquadKind::Notch { center_hz, q });
@@ -382,6 +495,27 @@ impl Biquad {
         bq.ensure_coeffs(sample_rate_hz);
         bq
     }
+    /// Convenience: low shelf parameterised by shelf slope `S`
+    /// (`slope = 1.0` → steepest monotonic transition).
+    pub fn low_shelf_slope(sample_rate_hz: u32, cutoff_hz: f32, slope: f32, gain_db: f32) -> Self {
+        let mut bq = Self::new(BiquadKind::LowShelfSlope {
+            cutoff_hz,
+            slope,
+            gain_db,
+        });
+        bq.ensure_coeffs(sample_rate_hz);
+        bq
+    }
+    /// Convenience: high shelf parameterised by shelf slope `S`.
+    pub fn high_shelf_slope(sample_rate_hz: u32, cutoff_hz: f32, slope: f32, gain_db: f32) -> Self {
+        let mut bq = Self::new(BiquadKind::HighShelfSlope {
+            cutoff_hz,
+            slope,
+            gain_db,
+        });
+        bq.ensure_coeffs(sample_rate_hz);
+        bq
+    }
     /// Convenience: second-order all-pass (flat magnitude, frequency-
     /// dependent phase rotation centred at `center_hz`; `Q` sets the
     /// width of the phase-rotation transition).
@@ -402,6 +536,33 @@ impl Biquad {
     /// Currently-active configuration.
     pub fn kind(&self) -> BiquadKind {
         self.kind
+    }
+
+    /// Closed-form magnitude response in dB at `freq_hz` for a stream
+    /// at `sample_rate_hz`, evaluated directly from the compiled
+    /// coefficients:
+    ///
+    /// ```text
+    /// |H(e^{jω})| = |b0 + b1·e^{-jω} + b2·e^{-j2ω}|
+    ///             / |1  + a1·e^{-jω} + a2·e^{-j2ω}|,   ω = 2π·f/fs
+    /// ```
+    ///
+    /// Pure function of the configuration — does not touch filter
+    /// state. Useful for response plotting and for asserting the
+    /// design formulas without running samples through the recurrence.
+    pub fn magnitude_response_db(&self, freq_hz: f32, sample_rate_hz: u32) -> f64 {
+        let c = Coeffs::from_kind(self.kind, sample_rate_hz);
+        let w = 2.0 * std::f64::consts::PI * freq_hz as f64 / sample_rate_hz.max(1) as f64;
+        let (cos1, sin1) = (w.cos(), w.sin());
+        let (cos2, sin2) = ((2.0 * w).cos(), (2.0 * w).sin());
+        // Numerator / denominator evaluated at z = e^{jω} (so z^{-1} =
+        // e^{-jω} contributes -sin to the imaginary part).
+        let num_re = c.b0 + c.b1 * cos1 + c.b2 * cos2;
+        let num_im = -(c.b1 * sin1 + c.b2 * sin2);
+        let den_re = 1.0 + c.a1 * cos1 + c.a2 * cos2;
+        let den_im = -(c.a1 * sin1 + c.a2 * sin2);
+        let mag2 = (num_re * num_re + num_im * num_im) / (den_re * den_re + den_im * den_im);
+        10.0 * mag2.max(1.0e-30).log10()
     }
 
     fn ensure_coeffs(&mut self, sample_rate_hz: u32) {
@@ -740,6 +901,281 @@ mod tests {
             l1.is_finite() && l1 < 1_000.0,
             "high-Q all-pass L1 = {} (expected finite, < 1000)",
             l1
+        );
+    }
+
+    // ---- Cookbook completion (round 284): constant-peak BPF + slope
+    // shelves, verified with closed-form frequency-response assertions
+    // via `magnitude_response_db` (no sample-domain estimation error).
+
+    #[test]
+    fn constant_peak_bpf_unity_at_center_for_every_q() {
+        // Per the staged cookbook BPF (constant 0 dB peak gain):
+        // b = (α, 0, −α) over the standard denominator makes
+        // |H(e^{jω0})| = 1 *exactly*, independent of Q. Tolerance is
+        // 1e-9 dB — this is an algebraic identity, not an estimate.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        for &q in &[0.3f32, std::f32::consts::FRAC_1_SQRT_2, 2.0, 8.0, 32.0] {
+            let bq = Biquad::band_pass_constant_peak(fs, fc, q);
+            let g_db = bq.magnitude_response_db(fc, fs);
+            assert!(
+                g_db.abs() < 1.0e-9,
+                "constant-peak BPF gain at fc (Q={}) = {} dB (expected 0)",
+                q,
+                g_db
+            );
+        }
+    }
+
+    #[test]
+    fn constant_skirt_vs_constant_peak_differ_by_exactly_20log10_q() {
+        // The two cookbook BPF variants share the same denominator and
+        // their numerators differ by the exact factor Q
+        // (skirt: b0 = sinω0/2 = Q·α; peak: b0 = α), so at *every*
+        // frequency the responses differ by 20·log10(Q) dB.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let q = 4.0f32;
+        let skirt = Biquad::band_pass(fs, fc, q);
+        let peak = Biquad::band_pass_constant_peak(fs, fc, q);
+        let expected = 20.0 * (q as f64).log10(); // ≈ 12.04 dB
+        for &f in &[fc / 4.0, fc / 2.0, fc, fc * 2.0, fc * 4.0] {
+            let d = skirt.magnitude_response_db(f, fs) - peak.magnitude_response_db(f, fs);
+            assert!(
+                (d - expected).abs() < 1.0e-9,
+                "skirt − peak at {} Hz = {} dB (expected {})",
+                f,
+                d,
+                expected
+            );
+        }
+        // And the constant-skirt variant's centre gain is therefore
+        // exactly 20·log10(Q) dB above unity.
+        let g_skirt = skirt.magnitude_response_db(fc, fs);
+        assert!(
+            (g_skirt - expected).abs() < 1.0e-9,
+            "constant-skirt BPF centre gain = {} dB (expected {})",
+            g_skirt,
+            expected
+        );
+    }
+
+    #[test]
+    fn constant_peak_bpf_unity_at_center_through_samples() {
+        // End-to-end check through the recurrence: a high-Q (Q = 8)
+        // constant-peak BPF passes a centre-frequency sine at 0 dB.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let mut bq = Biquad::band_pass_constant_peak(fs, fc, 8.0);
+        let x = sine(fc, fs, 32_768);
+        let y = run(&mut bq, &x, fs, 16_384);
+        let g_db = db(rms(&y)) - db(rms(&sine(fc, fs, 16_384)));
+        assert!(
+            g_db.abs() < 0.1,
+            "processed constant-peak BPF gain at fc = {} dB (expected ≈ 0)",
+            g_db
+        );
+    }
+
+    #[test]
+    fn slope_one_shelf_equals_q_inv_sqrt2_shelf() {
+        // Cookbook S↔Q mapping: 1/Q² = (A + 1/A)(1/S − 1) + 2, so at
+        // S = 1 the radicand is exactly 2 → Q = 1/√2 for *any* gain.
+        // The slope-parameterised shelf must therefore reproduce the
+        // Q-parameterised one bit-for-bit (modulo f32→f64 of the Q
+        // constant; assert ≤ 1e-6 dB at probe points).
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        for &gain_db in &[-15.0f32, -6.0, 6.0, 15.0] {
+            let s_lo = Biquad::low_shelf_slope(fs, fc, 1.0, gain_db);
+            let q_lo = Biquad::low_shelf(fs, fc, std::f32::consts::FRAC_1_SQRT_2, gain_db);
+            let s_hi = Biquad::high_shelf_slope(fs, fc, 1.0, gain_db);
+            let q_hi = Biquad::high_shelf(fs, fc, std::f32::consts::FRAC_1_SQRT_2, gain_db);
+            for &f in &[50.0f32, 250.0, 1_000.0, 4_000.0, 16_000.0] {
+                let d_lo = s_lo.magnitude_response_db(f, fs) - q_lo.magnitude_response_db(f, fs);
+                let d_hi = s_hi.magnitude_response_db(f, fs) - q_hi.magnitude_response_db(f, fs);
+                assert!(
+                    d_lo.abs() < 1.0e-6 && d_hi.abs() < 1.0e-6,
+                    "S=1 vs Q=1/√2 mismatch at {} Hz (gain {} dB): lo {} dB, hi {} dB",
+                    f,
+                    gain_db,
+                    d_lo,
+                    d_hi
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shelf_midpoint_gain_is_exactly_half_dbgain() {
+        // f0 is the cookbook shelf *midpoint*: |H| at f0 is exactly A,
+        // i.e. gain_db / 2 in dB (the analog prototype's numerator and
+        // denominator magnitudes coincide at ω = 1 apart from the
+        // leading A, and the BLT pre-warp preserves the f0 mapping).
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        for &gain_db in &[-12.0f32, -3.0, 3.0, 12.0] {
+            for &slope in &[0.5f32, 1.0] {
+                let lo = Biquad::low_shelf_slope(fs, fc, slope, gain_db);
+                let hi = Biquad::high_shelf_slope(fs, fc, slope, gain_db);
+                let expected = gain_db as f64 / 2.0;
+                let g_lo = lo.magnitude_response_db(fc, fs);
+                let g_hi = hi.magnitude_response_db(fc, fs);
+                assert!(
+                    (g_lo - expected).abs() < 1.0e-6,
+                    "low-shelf midpoint gain (S={}, {} dB) = {} (expected {})",
+                    slope,
+                    gain_db,
+                    g_lo,
+                    expected
+                );
+                assert!(
+                    (g_hi - expected).abs() < 1.0e-6,
+                    "high-shelf midpoint gain (S={}, {} dB) = {} (expected {})",
+                    slope,
+                    gain_db,
+                    g_hi,
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn slope_shelf_dc_and_nyquist_plateaus() {
+        // Low shelf: DC gain is exactly gain_db, Nyquist gain exactly
+        // 0 dB. High shelf mirrors. Probe just inside the edges (1 Hz
+        // and fs/2 − 1 Hz) with a 0.01 dB tolerance.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let gain_db = 12.0f32;
+        let lo = Biquad::low_shelf_slope(fs, fc, 1.0, gain_db);
+        let hi = Biquad::high_shelf_slope(fs, fc, 1.0, gain_db);
+        let near_dc = 1.0f32;
+        let near_nyq = fs as f32 / 2.0 - 1.0;
+        let lo_dc = lo.magnitude_response_db(near_dc, fs);
+        let lo_ny = lo.magnitude_response_db(near_nyq, fs);
+        let hi_dc = hi.magnitude_response_db(near_dc, fs);
+        let hi_ny = hi.magnitude_response_db(near_nyq, fs);
+        assert!(
+            (lo_dc - gain_db as f64).abs() < 0.01,
+            "low-shelf DC = {} dB",
+            lo_dc
+        );
+        assert!(lo_ny.abs() < 0.01, "low-shelf Nyquist = {} dB", lo_ny);
+        assert!(hi_dc.abs() < 0.01, "high-shelf DC = {} dB", hi_dc);
+        assert!(
+            (hi_ny - gain_db as f64).abs() < 0.01,
+            "high-shelf Nyquist = {} dB",
+            hi_ny
+        );
+    }
+
+    #[test]
+    fn slope_one_is_monotonic_slope_two_overshoots() {
+        // Per the staged cookbook, S = 1 is the steepest shelf that
+        // remains monotonic. Sweep 121 log-spaced points (20 Hz →
+        // 20 kHz, 1/12-octave): the +12 dB low shelf at S = 1 must be
+        // non-increasing throughout, while S = 2 must overshoot — its
+        // maximum exceeds the shelf gain and its minimum dips below
+        // unity (measured ≈ +1.38 / −1.38 dB for this design; assert
+        // a conservative ±1 dB excursion).
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let gain_db = 12.0f32;
+        let freqs: Vec<f32> = (0..121)
+            .map(|i| 20.0f32 * 2.0f32.powf(i as f32 / 12.0))
+            .filter(|f| *f < fs as f32 / 2.0)
+            .collect();
+
+        let s1 = Biquad::low_shelf_slope(fs, fc, 1.0, gain_db);
+        let mags1: Vec<f64> = freqs
+            .iter()
+            .map(|&f| s1.magnitude_response_db(f, fs))
+            .collect();
+        for w in mags1.windows(2) {
+            assert!(
+                w[1] <= w[0] + 1.0e-6,
+                "S=1 low shelf not monotonic: {} dB → {} dB",
+                w[0],
+                w[1]
+            );
+        }
+
+        let s2 = Biquad::low_shelf_slope(fs, fc, 2.0, gain_db);
+        let mags2: Vec<f64> = freqs
+            .iter()
+            .map(|&f| s2.magnitude_response_db(f, fs))
+            .collect();
+        let max2 = mags2.iter().cloned().fold(f64::MIN, f64::max);
+        let min2 = mags2.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            max2 > gain_db as f64 + 1.0,
+            "S=2 low shelf max = {} dB (expected overshoot > {})",
+            max2,
+            gain_db as f64 + 1.0
+        );
+        assert!(
+            min2 < -1.0,
+            "S=2 low shelf min = {} dB (expected undershoot < -1)",
+            min2
+        );
+    }
+
+    #[test]
+    fn slope_shelf_processes_samples_at_expected_gain() {
+        // End-to-end: +6 dB high shelf (S = 1) at 1 kHz boosts an
+        // 8 kHz sine by ≈ 6 dB and leaves an 80 Hz sine at ≈ 0 dB.
+        let fs = 48_000u32;
+        let mut hi = Biquad::high_shelf_slope(fs, 1_000.0, 1.0, 6.0);
+        let x_hi = sine(8_000.0, fs, 16_384);
+        let y_hi = run(&mut hi, &x_hi, fs, 8_192);
+        let g_hi = db(rms(&y_hi)) - db(rms(&sine(8_000.0, fs, 8_192)));
+        assert!(
+            (g_hi - 6.0).abs() < 0.6,
+            "high-shelf-slope in-band gain = {} dB (expected ≈ 6)",
+            g_hi
+        );
+
+        let mut hi2 = Biquad::high_shelf_slope(fs, 1_000.0, 1.0, 6.0);
+        let x_lo = sine(80.0, fs, 65_536);
+        let y_lo = run(&mut hi2, &x_lo, fs, 32_768);
+        let g_lo = db(rms(&y_lo)) - db(rms(&sine(80.0, fs, 32_768)));
+        assert!(
+            g_lo.abs() < 0.6,
+            "high-shelf-slope out-of-band gain = {} dB (expected ≈ 0)",
+            g_lo
+        );
+    }
+
+    #[test]
+    fn magnitude_response_matches_measured_gain_for_legacy_kinds() {
+        // Cross-check the analytic evaluator against the recurrence on
+        // an existing configuration: peaking +6 dB at 1 kHz, probed at
+        // the centre. Analytic must be exactly 6 dB — at ω0 the
+        // peaking numerator reduces to 2jαA·sinω0 and the denominator
+        // to 2j(α/A)·sinω0, so |H(e^{jω0})| = A² = 10^(gain_db/20)
+        // exactly. The measured sine gain agrees within the
+        // estimation tolerance.
+        let fs = 48_000u32;
+        let fc = 1_000.0f32;
+        let bq = Biquad::peaking(fs, fc, 2.0, 6.0);
+        let analytic = bq.magnitude_response_db(fc, fs);
+        assert!(
+            (analytic - 6.0).abs() < 1.0e-9,
+            "analytic peaking gain at fc = {} dB",
+            analytic
+        );
+        let mut bq2 = Biquad::peaking(fs, fc, 2.0, 6.0);
+        let x = sine(fc, fs, 16_384);
+        let y = run(&mut bq2, &x, fs, 8_192);
+        let measured = db(rms(&y)) as f64 - db(rms(&sine(fc, fs, 8_192))) as f64;
+        assert!(
+            (measured - analytic).abs() < 0.6,
+            "analytic {} dB vs measured {} dB",
+            analytic,
+            measured
         );
     }
 

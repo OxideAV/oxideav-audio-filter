@@ -30,9 +30,12 @@
 //!   with PNG output.
 //! - [`DownmixFilter`](downmix::DownmixFilter) — channel-layout fold-down
 //!   (LoRo / LtRt / Average / Binaural).
-//! - [`Biquad`](biquad::Biquad) — second-order IIR EQ family (LPF/HPF
-//!   /BPF/notch/peaking/low-shelf/high-shelf/all-pass) with bilinear-
-//!   transform coefficient derivation.
+//! - [`Biquad`](biquad::Biquad) — second-order IIR EQ family (LPF /
+//!   HPF / BPF in constant-skirt and constant-0dB-peak variants /
+//!   notch / peaking / low + high shelves in Q- and slope-(S)-
+//!   parameterised forms / all-pass) with bilinear-transform
+//!   coefficient derivation and a closed-form
+//!   `magnitude_response_db` evaluator.
 //! - [`Compressor`](compressor::Compressor) — peak-detector compressor
 //!   with soft-knee + attack/release follower + make-up gain.
 //! - [`Limiter`](limiter::Limiter) — brickwall peak limiter with
