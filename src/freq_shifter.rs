@@ -65,11 +65,10 @@
 //!
 //! # References
 //!
-//! Hilbert-FIR SSB modulator is textbook: A. V. Oppenheim & R. W.
-//! Schafer, *Discrete-Time Signal Processing* (3rd ed., 2010),
-//! chap. 5 ("Filter Design"); SSB frequency shifter is U. Zölzer,
-//! *DAFX: Digital Audio Effects* (2nd ed., 2011), chap. "Modulators
-//! and Demodulators". No external SSB-shifter source consulted.
+//! The Hilbert-FIR single-sideband modulator is the standard
+//! frequency-shifter construction: a windowed-sinc Hilbert pair forms
+//! the analytic signal, which a complex oscillator rotates before
+//! taking the real part.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};

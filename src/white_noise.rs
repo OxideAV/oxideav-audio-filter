@@ -19,8 +19,7 @@
 //! sample = (2·u - 1) · amplitude                   ∈ [-A, +A)
 //! ```
 //!
-//! The constants are the standard splitmix64 mix constants from Vigna's
-//! reference description — no external library code consulted. State is held
+//! The constants are the published splitmix64 mix constants. State is held
 //! across `process` calls so the generator stream is continuous across frame
 //! boundaries.
 //!
@@ -69,7 +68,7 @@ impl WhiteNoise {
     /// Next uniform sample in `[-amplitude, +amplitude)`.
     #[inline]
     fn next_sample(&mut self) -> f32 {
-        // splitmix64 — single-call PRNG step. Constants from Vigna.
+        // splitmix64 — single-call PRNG step (published mix constants).
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.state;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);

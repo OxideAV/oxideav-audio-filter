@@ -1,6 +1,6 @@
 //! Transient Designer — attack / sustain envelope shaping.
 //!
-//! The classic SPL-style "transient shaper" detects per-sample whether
+//! A transient shaper detects per-sample whether
 //! the instantaneous signal is in an **attack** phase (rising) or in a
 //! **sustain** phase (decaying), and applies independent gain
 //! adjustments to each. Boosting attack adds punch to drums; cutting
@@ -38,8 +38,8 @@
 //! Both detectors use the one-pole exponential coefficient
 //! `α = 1 − exp(−1 / (τ · f_s))` from the [`EnvelopeFollower`]
 //! reference. The fast attack defaults to 1 ms, the slow attack to
-//! 35 ms; the release times trail by an order of magnitude. These
-//! match the SPL Transient Designer manual's documented ranges.
+//! 35 ms; the release times trail by an order of magnitude — the
+//! conventional operating ranges for this effect class.
 //!
 //! # Parameters
 //!
@@ -50,13 +50,12 @@
 //! * `attack_ms_fast` / `attack_ms_slow` — detector time-constants
 //!   (default 1.0 / 35.0 ms; clamped ≥ 0.1 ms).
 //!
-//! # References
+//! # Design notes
 //!
-//! Two-envelope difference detector is textbook: U. Zölzer, *DAFX:
-//! Digital Audio Effects* (2nd ed., 2011), chapter "Transient
-//! Modification". The fast/slow time constants are taken from the SPL
-//! Transient Designer (model 9842) operating-manual ranges (publicly
-//! published; not source-derived).
+//! The two-envelope difference detector is standard dynamics-processing
+//! practice; the default fast/slow time constants (1 ms / 35 ms,
+//! releases trailing ~10x) are the conventional operating ranges for
+//! this effect class.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};
@@ -138,9 +137,8 @@ impl TransientDesigner {
             return;
         }
         let fs = sample_rate as f32;
-        // Release trails attack by an order of magnitude — gives an
-        // exponential-decay tail comparable to the SPL model 9842's
-        // documented ~10× ratio.
+        // Release trails attack by an order of magnitude, giving the
+        // conventional exponential-decay tail for this effect class.
         let alpha = |ms: f32| 1.0 - (-1.0 / (ms.max(0.1) * 1.0e-3 * fs)).exp();
         let af_a = alpha(self.attack_ms_fast);
         let af_r = alpha(self.attack_ms_fast * 10.0);

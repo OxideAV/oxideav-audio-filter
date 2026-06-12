@@ -43,11 +43,11 @@
 //! * `mix` — wet (harmonic) amount in `[0, 1]`. `0` = dry only,
 //!   `1` = full harmonic layer added on top of dry.
 //!
-//! # References
+//! # Design notes
 //!
-//! Block-diagram and idea are textbook (Zölzer "DAFX", chap. "Non-
-//! linear processing"); the `tanh(k·x) / tanh(k)` normalisation is a
-//! standard saturation primitive. No reference source code was consulted.
+//! The `tanh(k·x) / tanh(k)` normalisation is a standard saturation
+//! primitive; the band-split + saturate + mix block diagram is the
+//! conventional exciter topology.
 
 use crate::biquad::{Biquad, BiquadKind};
 use crate::sample_convert::{decode_to_f32, encode_from_f32};

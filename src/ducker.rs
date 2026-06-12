@@ -58,11 +58,10 @@
 //! * `key_channel` — `None` (peak-link over all channels) or
 //!   `Some(c)` to key only off channel `c`.
 //!
-//! # References
+//! # Design notes
 //!
-//! Static compressor curve + dual-time-constant detector are
-//! textbook (Zölzer DAFX, "Dynamic Range Processing"). No external
-//! ducker source was consulted.
+//! Static compressor curve + dual-time-constant detector are standard
+//! dynamic-range-processing topology.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};

@@ -45,11 +45,8 @@
 //!
 //! # General DSP literature
 //!
-//! Hard (memoryless) clipping is the textbook nonlinear distortion
-//! primitive — see any introductory treatment of waveshaping /
-//! nonlinear audio processing (e.g. Zölzer, *DAFX: Digital Audio
-//! Effects*, the "Nonlinear Processing" chapter). Implemented here from
-//! the first-principles `clamp` definition; no external source consulted.
+//! Hard (memoryless) clipping is the elementary nonlinear distortion
+//! primitive, implemented from the first-principles `clamp` definition.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};

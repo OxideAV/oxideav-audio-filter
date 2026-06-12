@@ -82,9 +82,7 @@
 //! primitive — used in analog-synth envelope smoothers, "portamento"
 //! glide between MIDI notes, and anti-zipper smoothers on
 //! click-prone parameter changes (volume, pan, EQ Q-factor). The
-//! closed-form recurrence above is the standard implementation;
-//! implemented here from first principles, no external source
-//! consulted.
+//! closed-form recurrence above is the standard implementation.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};

@@ -301,8 +301,7 @@ fn build_loro(src: ChannelLayout, dst: ChannelLayout) -> Result<Vec<Vec<f32>>> {
 /// Ro = R + 0.707·C + 0.707·Rs
 /// ```
 ///
-/// LFE is dropped (the spec permits any coefficient but the safer
-/// default — mirroring `liba52` / `ffmpeg`'s `ac3_downmix` behaviour —
+/// LFE is dropped (the spec permits any coefficient; the safer default
 /// is to route LFE to nothing so a sub-bus crossover doesn't double-tap
 /// the bass).
 fn loro_to_stereo(src: ChannelLayout) -> Result<Vec<Vec<f32>>> {

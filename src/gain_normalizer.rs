@@ -67,11 +67,10 @@
 //! * `silence_threshold_db` — below this RMS the integrator freezes
 //!   (default `-60`).
 //!
-//! # References
+//! # Design notes
 //!
-//! Long-window RMS + gain-domain smoothing is textbook AGC topology
-//! (Zölzer DAFX, "Adaptive Gain Control"). No external AGC source
-//! was consulted.
+//! Long-window RMS + gain-domain smoothing is the standard automatic
+//! gain-control topology.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};

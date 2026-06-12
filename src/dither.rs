@@ -210,8 +210,8 @@ impl Dither {
         self.state.clear();
     }
 
-    /// splitmix64 step → uniform in `[0, 1)`. Constants from Vigna's
-    /// reference description (same generator as `WhiteNoise`).
+    /// splitmix64 step → uniform in `[0, 1)` — published mix constants
+    /// (same generator as `WhiteNoise`).
     #[inline]
     fn next_unit(&mut self) -> f64 {
         self.rng = self.rng.wrapping_add(0x9E37_79B9_7F4A_7C15);

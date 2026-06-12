@@ -90,11 +90,10 @@
 //!
 //! # Provenance
 //!
-//! Algorithm derived from first principles by mirroring the static
-//! curve in [`crate::compressor`] across the threshold and reflecting
-//! the slope sign. No external library source consulted; the
-//! detector + static-curve algebra is standard dynamic-range-processor
-//! material that is already in use elsewhere in this crate.
+//! The algorithm mirrors the static curve in [`crate::compressor`]
+//! across the threshold and reflects the slope sign; the detector +
+//! static-curve algebra is the same dynamic-range-processor material
+//! already in use elsewhere in this crate.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};
