@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 292: `window` — new FIR analysis-window catalogue module
+  (`WindowFunction` re-export) gathering the full closed-form window
+  family from `docs/audio/filter/wikipedia-window-function.html` in
+  one reusable place: `Rectangular`, `Triangular` (Bartlett), `Hann`,
+  `Hamming` (optimal `0.53836 / 0.46164`), `Blackman` (classic
+  `α = 0.16`), `BlackmanExact` (rational `7938/18608 …`), `Nuttall`,
+  `BlackmanNuttall`, `BlackmanHarris`, `FlatTop` (five-term cosine
+  sum, partially negative), `Sine` / cosine, `Lanczos` (sinc), and the
+  three parameterised adjustable windows `Gaussian(σ)`, `Tukey(α)`,
+  `Kaiser(β)` (sharing a local `f64` `I₀` Bessel series). General
+  alternating cosine-sum evaluation `w[n] = a0 − a1·cos(2πn/N) +
+  a2·cos(4πn/N) − …` on the symmetric `N = L − 1` convention (matching
+  the spectrogram's existing `denom = n − 1`). Per-window
+  `value(n, len)` / `generate(len)` / `generate_f32(len)` plus
+  `coherent_gain` and `equivalent_noise_bandwidth` (ENBW in DFT bins)
+  metrics. 51 unit tests against worked values: exact endpoint /
+  centre coefficients for every cosine-sum window, Tukey `α = 0 ≡`
+  rectangular and `α = 1 ≡` Hann, Kaiser `β = 0 ≡` rectangular,
+  `I₀(1) ≈ 1.26607` / `I₀(2) ≈ 2.27959` reference Bessel values,
+  flat-top negativity, full-catalogue symmetry, and the ENBW ordering
+  `rect (1.0) < Hann (→1.5) < Blackman < flat-top`.
 - round 284: `biquad` — completed the staged EQ-cookbook catalogue
   (`docs/audio/filter/audio-eq-cookbook.html`), growing the family
   from eight to eleven configurations. New `BiquadKind` variants:

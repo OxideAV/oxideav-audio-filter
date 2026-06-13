@@ -323,6 +323,7 @@ pub mod vibrato;
 pub mod volume;
 pub mod wah;
 pub mod white_noise;
+pub mod window;
 pub mod zero_crossing_rate;
 
 pub use adaptive_noise_gate::AdaptiveNoiseGate;
@@ -384,6 +385,7 @@ pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use wah::Wah;
 pub use white_noise::WhiteNoise;
+pub use window::Window as WindowFunction;
 pub use zero_crossing_rate::ZeroCrossingRateMeter;
 
 use oxideav_core::{AudioFrame, Result, SampleFormat};
