@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 305: `frac_delay` — new `FracDelayLine` DSP primitive providing
+  selectable-kernel reads of a per-channel ring buffer at arbitrary
+  fractional (between-sample) delays. This is the bandlimited-
+  interpolation problem from `docs/audio/filter/`
+  (`jos-bandlimited-interpolation.html`,
+  `jos-theory-of-sample-rate-conversion.html`, `jos-resample.html`):
+  reconstruct `x(p)` for non-integer `p` from samples bandlimited to
+  `Fs/2`. Four `Interp` kernels: `Linear` (two-tap blend), `Hermite`
+  (four-tap Catmull–Rom cubic), `Lagrange(n)` (order-`n` polynomial via
+  the product Lagrange basis `Lⱼ(x)=Πₘ≠ⱼ(x−xₘ)/(xⱼ−xₘ)`, `n=1`≡linear,
+  clamped to `[1, 8]`), and `Sinc { half_taps, beta }` (windowed-sinc
+  reconstruction `Σ x[k]·sinc(p−k)`, Kaiser-tapered via
+  `window::Window::Kaiser`, normalised for unity DC gain, `half_taps`
+  clamped to `[1, 32]`). Edge-extension clamp on the newest boundary;
+  `max_delay()` reports the kernel-reach-aware safe delay. Pure utility
+  (not an `AudioFilter`, no registry entry), mirroring the `window`
+  catalogue. Consolidates the two-tap linear reads currently hand-rolled
+  in `chorus` / `flanger` / `vibrato`. 14 unit tests: integer-delay
+  exactness (all kernels), linear midpoint average, DC reconstruction
+  (all kernels), order-3 Lagrange exactness on a quadratic,
+  `Lagrange(1)`≡`Linear`, Hermite endpoint pass-through, sinc beating
+  linear ≥4× on an 8 kHz sine at worst-case `f=0.5`, channel
+  independence, under-filled / negative / non-finite handling, reset,
+  parameter clamping, kernel-reach `max_delay` ordering.
 - round 299: `upward_compressor` — new `UpwardCompressor` filter
   completing the four-quadrant dynamic-range-processor taxonomy
   (`docs/audio/filter/` dynamic-range reference). Boosts signal
