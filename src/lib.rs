@@ -131,6 +131,15 @@
 //!   gracefully into silence instead of slamming closed. `ratio = ∞`
 //!   collapses to a hard downward gate; soft-knee width smooths the
 //!   threshold transition.
+//! - [`UpwardCompressor`](upward_compressor::UpwardCompressor) — the
+//!   complementary dynamics quadrant: *boosts* quiet signal **below**
+//!   the threshold by `(1 - 1/R)` of each dB of under-shoot (capped at
+//!   `range_db`), leaving peaks above the threshold untouched. Narrows
+//!   the dynamic range from the bottom while preserving transients —
+//!   distinct from [`Compressor`](compressor::Compressor) (reduces
+//!   *above* threshold) and [`Expander`](expander::Expander)
+//!   (attenuates *below*; this boosts). `ratio = ∞` lifts quiet signal
+//!   up to the threshold; soft-knee + range-cap.
 //! - [`TruePeakDetector`](true_peak_detector::TruePeakDetector) — 4×
 //!   polyphase oversampled inter-sample peak observer (dBTP).
 //!   Pass-through; reports `current_dbtp` / `max_dbtp` / `overs`
@@ -319,6 +328,7 @@ pub mod tape_saturation;
 pub mod transient_designer;
 pub mod tremolo;
 pub mod true_peak_detector;
+pub mod upward_compressor;
 pub mod vibrato;
 pub mod volume;
 pub mod wah;
@@ -381,6 +391,7 @@ pub use tape_saturation::TapeSaturation;
 pub use transient_designer::TransientDesigner;
 pub use tremolo::Tremolo;
 pub use true_peak_detector::TruePeakDetector;
+pub use upward_compressor::UpwardCompressor;
 pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use wah::Wah;

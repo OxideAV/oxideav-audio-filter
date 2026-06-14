@@ -95,6 +95,8 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("slew_limiter", Box::new(make_slew_limiter));
     ctx.filters.register("expander", Box::new(make_expander));
     ctx.filters
+        .register("upward_compressor", Box::new(make_upward_compressor));
+    ctx.filters
         .register("true_peak_detector", Box::new(make_true_peak_detector));
     ctx.filters.register("svf", Box::new(make_svf));
     ctx.filters
@@ -1753,6 +1755,43 @@ fn make_expander(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFi
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(exp),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "upward_compressor", "threshold_db": -30.0,
+/// "ratio": 2.0, "attack_ms": 5.0, "release_ms": 50.0, "knee_db": 0.0,
+/// "range_db": 24.0}` — upward compressor. Boosts signal *below* the
+/// threshold by `(1 - 1/ratio)` of each dB of under-shoot (capped at
+/// `range_db`), leaving peaks above it unchanged. Use a large `ratio`
+/// to lift quiet signal all the way up to the threshold; in code
+/// [`crate::UpwardCompressor::upward`] gives a hard-knee /
+/// `range_db = 24` default. Distinct from `compressor` (reduces above
+/// threshold) and `expander` (attenuates below threshold).
+fn make_upward_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::UpwardCompressor;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let uc = UpwardCompressor::new(
+        get_f64("threshold_db", -30.0) as f32,
+        get_f64("ratio", 2.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 50.0) as f32,
+        get_f64("knee_db", 0.0) as f32,
+        get_f64("range_db", 24.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(uc),
         in_port,
         out_port,
     )))

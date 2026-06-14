@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 299: `upward_compressor` — new `UpwardCompressor` filter
+  completing the four-quadrant dynamic-range-processor taxonomy
+  (`docs/audio/filter/` dynamic-range reference). Boosts signal
+  *below* the threshold by `(1 − 1/R)` of each dB of under-shoot,
+  capped at `range_db`, leaving peaks above the threshold untouched
+  (narrows dynamic range from the bottom while preserving transients).
+  `ratio = 1` / `range_db = 0` → identity; `ratio = ∞` lifts quiet
+  signal up to the threshold; soft-knee C¹ quadratic blend and one-pole
+  peak-linked detector mirror `compressor` / `expander`. Registry entry
+  `"upward_compressor"` (`threshold_db` / `ratio` / `attack_ms` /
+  `release_ms` / `knee_db` / `range_db` JSON keys). 13 unit tests:
+  above-threshold pass-through, 2:1 / 4:1 / ∞:1 boost depth, range cap,
+  ratio-1 + range-0 identity, soft-knee continuity + monotonicity,
+  linked-detector stereo image preservation, parameter clamping,
+  rate-invariance, split-call streaming continuity, and a
+  two-level-programme dynamic-range-narrowing test.
 - round 292: `window` — new FIR analysis-window catalogue module
   (`WindowFunction` re-export) gathering the full closed-form window
   family from `docs/audio/filter/wikipedia-window-function.html` in
