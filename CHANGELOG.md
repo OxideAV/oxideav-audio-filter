@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 313: `window` — two new polynomial / B-spline analysis windows
+  added to the `Window` catalogue, transcribed from
+  `docs/audio/filter/wikipedia-window-function.html` (§ "Other
+  polynomial windows" / § "B-spline windows"): `Welch` (a single
+  parabolic section `w[n] = 1 − ((n − N/2)/(N/2))²` on the `0 ≤ n ≤ N`
+  convention; nulls both endpoints exactly, peaks at unity at the
+  centre — the canonical window of Welch's periodogram-averaging PSD
+  estimate) and `Parzen` (the 4th-order B-spline / de la Vallée Poussin
+  window, the smoothest piecewise-cubic polynomial taper, defined
+  zero-phase on `|m| ≤ L/2` with `m = n − N/2` by the staged two-segment
+  cubic; endpoints `2·(1/L)³`). Both reuse the existing `value` /
+  `generate` / `coherent_gain` / `equivalent_noise_bandwidth` API.
+  Completes the polynomial B-spline family (Triangular = 1st order,
+  Welch ≈ 2nd, Parzen = 4th), whose ENBW widens monotonically with
+  order: rectangular 1.0 < Welch ≈ 1.20 < Triangular ≈ 1.34 <
+  Parzen ≈ 1.92. 5 new unit tests (Welch parabola values + concavity
+  + non-negativity, Parzen centre/endpoint formula + smoothness, and
+  the polynomial-B-spline ENBW ordering). Pure utility — not an
+  `AudioFilter`, no registry entry.
 - round 305: `frac_delay` — new `FracDelayLine` DSP primitive providing
   selectable-kernel reads of a per-channel ring buffer at arbitrary
   fractional (between-sample) delays. This is the bandlimited-

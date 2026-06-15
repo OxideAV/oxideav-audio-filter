@@ -49,7 +49,23 @@ pub enum Window {
     Rectangular,
     /// Triangular / Bartlett window (zero-valued endpoints): the
     /// `L`-point triangle peaking at the centre. `w[n] = 1 − |(n − N/2)/(N/2)|`.
+    /// (the 1st-order B-spline window.)
     Triangular,
+    /// Welch (parabolic) window — a single parabolic section:
+    /// `w[n] = 1 − ((n − N/2)/(N/2))²` for `0 ≤ n ≤ N`. The defining
+    /// quadratic reaches zero just outside the window span, so the
+    /// endpoints are nulled. Close to (and slightly wider main-lobe than)
+    /// the `Sine` window; the canonical window of Welch's periodogram-
+    /// averaging power-spectral-density estimate.
+    Welch,
+    /// Parzen window — the 4th-order B-spline (de la Vallée Poussin)
+    /// window. A piecewise-cubic, twice-continuously-differentiable
+    /// taper with strictly non-negative spectrum; the smoothest of the
+    /// polynomial B-spline family (Triangular = 1st order, Welch ≈ 2nd
+    /// order, Parzen = 4th order). Defined zero-phase on `|m| ≤ L/2`
+    /// (with `m = n − N/2`) by the two-segment cubic in the staged
+    /// reference and nulled at the endpoints.
+    Parzen,
     /// Hann (raised-cosine). `w[n] = 0.5·(1 − cos(2πn/N))`.
     Hann,
     /// Hamming, optimal coefficients `a0 = 0.53836`, `a1 = 0.46164`.
@@ -94,6 +110,13 @@ impl Window {
         match self {
             Window::Rectangular => 1.0,
             Window::Triangular => 1.0 - ((nn - big_n / 2.0) / (big_n / 2.0)).abs(),
+            Window::Welch => {
+                // Single parabolic section on the 0..=N convention:
+                // w[n] = 1 − ((n − N/2)/(N/2))².
+                let r = (nn - big_n / 2.0) / (big_n / 2.0);
+                1.0 - r * r
+            }
+            Window::Parzen => parzen(nn, len),
             Window::Hann => cosine_sum(&[0.5, 0.5], nn, big_n),
             Window::Hamming => cosine_sum(&[0.53836, 0.46164], nn, big_n),
             Window::Blackman => cosine_sum(&[0.42, 0.5, 0.08], nn, big_n),
@@ -205,6 +228,30 @@ fn cosine_sum(a: &[f64], n: f64, big_n: f64) -> f64 {
         acc += sign * al * (l as f64 * base).cos();
     }
     acc
+}
+
+/// Parzen (4th-order B-spline) window, length `len`, index `n`.
+///
+/// Staged zero-phase form on the centred index `m = n − N/2`
+/// (`N = L − 1`), with the half-width `h = L/2`:
+///
+/// ```text
+/// w0(m) = 1 − 6·(m/h)²·(1 − |m|/h)        for 0 ≤ |m| ≤ L/4
+/// w0(m) = 2·(1 − |m|/h)³                  for L/4 < |m| ≤ L/2
+/// w[n]  = w0(n − N/2),  0 ≤ n ≤ N
+/// ```
+fn parzen(n: f64, len: usize) -> f64 {
+    let big_n = (len - 1) as f64;
+    let half = len as f64 / 2.0; // h = L/2
+    let m = n - big_n / 2.0; // centred index
+    let am = m.abs();
+    let r = am / half; // |m| / (L/2) ∈ [0, ~1]
+    if am <= len as f64 / 4.0 {
+        1.0 - 6.0 * r * r * (1.0 - r)
+    } else {
+        let s = 1.0 - r;
+        2.0 * s * s * s
+    }
 }
 
 /// Normalised sinc: `sinc(x) = sin(πx)/(πx)`, with `sinc(0) = 1`.
@@ -445,6 +492,84 @@ mod tests {
     }
 
     #[test]
+    fn welch_parabola_values() {
+        // Welch: 1 − ((n − N/2)/(N/2))². Nulls both endpoints exactly,
+        // unity at the centre of an odd-length window.
+        let w = Window::Welch.generate(9);
+        assert_close(w[0], 0.0, EPS, "welch start");
+        assert_close(w[8], 0.0, EPS, "welch end");
+        assert_close(w[4], 1.0, EPS, "welch centre");
+        // n=2,N=8 -> r=(2-4)/4=-0.5 -> 1 - 0.25 = 0.75.
+        assert_close(w[2], 0.75, EPS, "welch quarter");
+        // n=3,N=8 -> r=-0.25 -> 1 - 0.0625 = 0.9375.
+        assert_close(w[3], 0.9375, EPS, "welch three-quarter");
+    }
+
+    #[test]
+    fn welch_is_strictly_concave_and_nonnegative() {
+        // A parabola opening downward: monotone increasing to the centre,
+        // strictly positive on the interior, never negative anywhere.
+        let len = 33;
+        let w = Window::Welch.generate(len);
+        let mid = len / 2;
+        for i in 1..=mid {
+            assert!(w[i] >= w[i - 1], "welch rising to centre at {i}");
+        }
+        for &v in &w[1..len - 1] {
+            assert!(v > 0.0, "welch interior strictly positive: {v}");
+        }
+        assert!(w.iter().all(|&v| v >= 0.0), "welch never negative");
+    }
+
+    #[test]
+    fn parzen_centre_unity_and_endpoint_formula() {
+        // Parzen peaks at unity at the centre.
+        let w = Window::Parzen.generate(9);
+        assert_close(w[4], 1.0, EPS, "parzen centre");
+        // Endpoint: at n=0, |m|=N/2, r=(L-1)/L, (1-r)=1/L, so the cubic
+        // segment gives 2·(1/L)³. For L=9 that is 2/729.
+        assert_close(w[0], 2.0 / 729.0, EPS, "parzen endpoint");
+        assert_close(w[8], 2.0 / 729.0, EPS, "parzen endpoint sym");
+    }
+
+    #[test]
+    fn parzen_is_smooth_nonnegative_bell() {
+        // Parzen is a non-negative, monotone-to-centre bell (smoothest
+        // of the polynomial B-spline family).
+        let len = 65;
+        let w = Window::Parzen.generate(len);
+        let mid = len / 2;
+        for i in 1..=mid {
+            assert!(w[i] >= w[i - 1] - 1.0e-12, "parzen rising to centre at {i}");
+        }
+        assert!(w.iter().all(|&v| v >= 0.0), "parzen never negative");
+        // Endpoint shrinks as the window lengthens: 2·(1/L)³.
+        assert_close(
+            w[0],
+            2.0 / (len as f64).powi(3),
+            1.0e-12,
+            "parzen endpoint L=65",
+        );
+    }
+
+    #[test]
+    fn polynomial_bspline_enbw_ordering() {
+        // Equivalent-noise-bandwidth widens monotonically as the
+        // polynomial taper grows smoother:
+        // rectangular (1.0) < Welch (≈1.20) < Triangular/Bartlett
+        // (≈1.34) < Parzen (≈1.92).
+        let len = 256;
+        let rect = Window::Rectangular.equivalent_noise_bandwidth(len);
+        let welch = Window::Welch.equivalent_noise_bandwidth(len);
+        let tri = Window::Triangular.equivalent_noise_bandwidth(len);
+        let parzen = Window::Parzen.equivalent_noise_bandwidth(len);
+        assert_close(rect, 1.0, 1.0e-9, "rect ENBW == 1");
+        assert!(welch > rect, "welch widens vs rect ({welch} > {rect})");
+        assert!(tri > welch, "triangular wider than welch ({tri} > {welch})");
+        assert!(parzen > tri, "parzen widest ({parzen} > {tri})");
+    }
+
+    #[test]
     fn enbw_ordering() {
         // Equivalent-noise-bandwidth: rectangular == 1, and tapered
         // windows widen monotonically Hann < Blackman < flat-top.
@@ -493,6 +618,8 @@ mod tests {
         for w in [
             Window::Rectangular,
             Window::Triangular,
+            Window::Welch,
+            Window::Parzen,
             Window::Hann,
             Window::Hamming,
             Window::Blackman,
