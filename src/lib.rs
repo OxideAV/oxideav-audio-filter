@@ -140,6 +140,17 @@
 //!   *above* threshold) and [`Expander`](expander::Expander)
 //!   (attenuates *below*; this boosts). `ratio = ∞` lifts quiet signal
 //!   up to the threshold; soft-knee + range-cap.
+//! - [`UpwardExpander`](upward_expander::UpwardExpander) — the fourth
+//!   and final dynamics quadrant: *boosts* loud signal **above** the
+//!   threshold by `(R - 1)` of each dB of over-shoot (capped at
+//!   `range_db`), leaving quiet signal below the threshold untouched.
+//!   Widens the dynamic range from the top — the range-widening
+//!   counterpart to [`Compressor`](compressor::Compressor) (which
+//!   narrows from the top by attenuating above), and the
+//!   above-threshold counterpart to [`Expander`](expander::Expander)
+//!   (which widens from the bottom by attenuating below). Re-opens
+//!   flattened transients / accentuates crescendos; soft-knee +
+//!   range-cap.
 //! - [`TruePeakDetector`](true_peak_detector::TruePeakDetector) — 4×
 //!   polyphase oversampled inter-sample peak observer (dBTP).
 //!   Pass-through; reports `current_dbtp` / `max_dbtp` / `overs`
@@ -330,6 +341,7 @@ pub mod transient_designer;
 pub mod tremolo;
 pub mod true_peak_detector;
 pub mod upward_compressor;
+pub mod upward_expander;
 pub mod vibrato;
 pub mod volume;
 pub mod wah;
@@ -394,6 +406,7 @@ pub use transient_designer::TransientDesigner;
 pub use tremolo::Tremolo;
 pub use true_peak_detector::TruePeakDetector;
 pub use upward_compressor::UpwardCompressor;
+pub use upward_expander::UpwardExpander;
 pub use vibrato::Vibrato;
 pub use volume::Volume;
 pub use wah::Wah;

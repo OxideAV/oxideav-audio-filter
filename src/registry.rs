@@ -97,6 +97,8 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters
         .register("upward_compressor", Box::new(make_upward_compressor));
     ctx.filters
+        .register("upward_expander", Box::new(make_upward_expander));
+    ctx.filters
         .register("true_peak_detector", Box::new(make_true_peak_detector));
     ctx.filters.register("svf", Box::new(make_svf));
     ctx.filters
@@ -1792,6 +1794,45 @@ fn make_upward_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(uc),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "upward_expander", "threshold_db": -30.0,
+/// "ratio": 2.0, "attack_ms": 5.0, "release_ms": 50.0, "knee_db": 0.0,
+/// "range_db": 12.0}` — upward expander. Boosts signal *above* the
+/// threshold by `(ratio - 1)` of each dB of over-shoot (capped at
+/// `range_db`), leaving signal below it unchanged. Widens the dynamic
+/// range from the top (re-opens flattened transients / accentuates
+/// crescendos); in code [`crate::UpwardExpander::upward`] gives a
+/// hard-knee / `range_db = 12` default. The fourth dynamics quadrant —
+/// distinct from `compressor` (reduces above threshold),
+/// `upward_compressor` (boosts below threshold), and `expander`
+/// (attenuates below threshold).
+fn make_upward_expander(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::UpwardExpander;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let ue = UpwardExpander::new(
+        get_f64("threshold_db", -30.0) as f32,
+        get_f64("ratio", 2.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 50.0) as f32,
+        get_f64("knee_db", 0.0) as f32,
+        get_f64("range_db", 12.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(ue),
         in_port,
         out_port,
     )))

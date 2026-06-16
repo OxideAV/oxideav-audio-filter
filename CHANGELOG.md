@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 324: `upward_expander` — the fourth and final quadrant of the
+  dynamic-range-processor taxonomy described in
+  `docs/audio/filter/wikipedia-dynamic-range-compression.html`
+  ("upward expansion makes the louder sounds above the threshold even
+  louder"). Boosts signal **above** `threshold_db` by `(ratio − 1)` of
+  each dB of over-shoot (`boost_db = min(range_db, (R − 1)·over)`),
+  leaving signal below the threshold untouched — widening the dynamic
+  range from the top (re-opens flattened transients, accentuates
+  crescendos). The above-threshold mirror of `upward_compressor`'s
+  below-threshold boost: same one-pole peak-linked detector (shared
+  attack/release, channel-linked by peak), same C¹ soft-knee quadratic
+  blend reflected across the threshold, same `range_db` cap (default
+  `12 dB` via `UpwardExpander::upward`) so an unbounded slope cannot
+  drive the loudest peaks past full-scale. `ratio = 1.0` or
+  `range_db = 0` → identity. Completes the four quadrants:
+  `compressor` (reduce above), `upward_compressor` (boost below),
+  `expander` (attenuate below), `upward_expander` (boost above). 13
+  unit tests (static-curve slope at 1.5:1 / 2:1, range cap, identity
+  cases, soft-knee continuity + C¹ slope match at the upper edge,
+  monotonicity, linked-detector stereo behaviour, rate invariance,
+  split-call streaming continuity, and the headline range-widening
+  programme test). Registry entry `"upward_expander"` accepts JSON
+  `threshold_db` / `ratio` / `attack_ms` / `release_ms` / `knee_db` /
+  `range_db` keys.
+
 - round 313: `window` — two new polynomial / B-spline analysis windows
   added to the `Window` catalogue, transcribed from
   `docs/audio/filter/wikipedia-window-function.html` (§ "Other
