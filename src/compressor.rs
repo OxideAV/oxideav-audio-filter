@@ -13,7 +13,7 @@
 //!   not necessarily track perceived loudness.
 //! * **RMS** — the follower runs on the squared drive `max(x_0², x_1², …)`
 //!   and the detector reports `√env`, a power (root-mean-square)
-//!   measurement that the reference notes "more closely relates to human
+//!   measurement that the spec notes "more closely relates to human
 //!   perception of loudness", giving a more relaxed compression.
 //!
 //! ```text
