@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 329: `compressor` peak / RMS detector — added a selectable
+  sidechain sensing mode to `Compressor`, grounded in the "Peak vs RMS
+  sensing" section of
+  `docs/audio/filter/wikipedia-dynamic-range-compression.html` ("Some
+  compressors apply a power measurement function (commonly root mean
+  square or RMS) on the input signal before comparing its level to the
+  threshold. This produces a more relaxed compression that more closely
+  relates to human perception of loudness."). The new
+  `Compressor::with_detector(…, EnvelopeMode::Rms)` runs the existing
+  one-pole attack/release follower on the squared drive `max(x_0², …)`
+  and reports `√env`, so compression is driven off the power
+  (root-mean-square) level rather than the rectified peak; reusing the
+  crate's existing `EnvelopeMode { Peak, Rms }` enum (shared with
+  `EnvelopeFollower`). `Compressor::new` is unchanged and defaults to
+  `EnvelopeMode::Peak` — legacy peak-sensing behaviour is byte-for-byte
+  identical. Registry `make_compressor` gained a `"detector"` JSON key
+  (`"peak"` default / `"rms"`), mirroring the envelope-follower `"mode"`
+  convention. 4 new unit tests: detector defaults to `Peak`; RMS mode
+  reproduces the peak detector exactly on a DC drive (no peak-vs-RMS gap
+  there); RMS mode settles onto the sine's true RMS level (`−3.01 dB`
+  below the peak) so a sine whose RMS sits 12 dB over the threshold gets
+  the expected `−9 dB` 4:1 reduction; plus a `detector()` getter.
+
 - round 324: `upward_expander` — the fourth and final quadrant of the
   dynamic-range-processor taxonomy described in
   `docs/audio/filter/wikipedia-dynamic-range-compression.html`

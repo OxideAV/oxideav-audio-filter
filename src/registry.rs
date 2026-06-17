@@ -522,22 +522,30 @@ fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
 
 /// `{"filter": "compressor", "threshold_db": -18.0, "ratio": 4.0,
 /// "attack_ms": 10.0, "release_ms": 100.0, "knee_db": 6.0,
-/// "makeup_gain_db": 0.0}`.
+/// "makeup_gain_db": 0.0, "detector": "peak"}`. `detector` selects the
+/// sidechain sensing mode (`"peak"`, default, or `"rms"` for the
+/// power-averaged perceptually-relaxed detector).
 fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::Compressor;
+    use crate::{Compressor, EnvelopeMode};
     let p = params.as_object();
     let get_f64 = |k: &str, dflt: f64| {
         p.and_then(|m| m.get(k))
             .and_then(|v| v.as_f64())
             .unwrap_or(dflt)
     };
-    let comp = Compressor::new(
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let detector = match get_str("detector") {
+        Some("rms") => EnvelopeMode::Rms,
+        _ => EnvelopeMode::Peak,
+    };
+    let comp = Compressor::with_detector(
         get_f64("threshold_db", -18.0) as f32,
         get_f64("ratio", 4.0) as f32,
         get_f64("attack_ms", 10.0) as f32,
         get_f64("release_ms", 100.0) as f32,
         get_f64("knee_db", 0.0) as f32,
         get_f64("makeup_gain_db", 0.0) as f32,
+        detector,
     );
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {

@@ -36,8 +36,9 @@
 //!   parameterised forms / all-pass) with bilinear-transform
 //!   coefficient derivation and a closed-form
 //!   `magnitude_response_db` evaluator.
-//! - [`Compressor`](compressor::Compressor) — peak-detector compressor
-//!   with soft-knee + attack/release follower + make-up gain.
+//! - [`Compressor`](compressor::Compressor) — soft-knee compressor with
+//!   attack/release follower + make-up gain + selectable peak / RMS
+//!   detector.
 //! - [`Limiter`](limiter::Limiter) — brickwall peak limiter with
 //!   optional look-ahead.
 //! - [`DcBlocker`](dc_blocker::DcBlocker) — first-order IIR HPF at

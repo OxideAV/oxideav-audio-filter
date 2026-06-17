@@ -1,15 +1,28 @@
-//! Peak compressor with soft-knee, attack/release follower, and make-up
-//! gain.
+//! Compressor with soft-knee, attack/release follower, make-up gain, and
+//! a selectable peak / RMS detector.
 //!
 //! # Detector
 //!
-//! The detector tracks the peak absolute value across all channels with
-//! a one-pole envelope follower:
+//! The detector tracks the level across all channels with a one-pole
+//! envelope follower. Two sensing modes are offered (see the "Peak vs
+//! RMS sensing" section of `docs/audio/filter/`'s dynamic-range
+//! compression reference):
+//!
+//! * **Peak** (default) — the follower smooths the rectified amplitude
+//!   `max(|x_0|, |x_1|, …)`. Provides tight peak-level control but does
+//!   not necessarily track perceived loudness.
+//! * **RMS** — the follower runs on the squared drive `max(x_0², x_1², …)`
+//!   and the detector reports `√env`, a power (root-mean-square)
+//!   measurement that the reference notes "more closely relates to human
+//!   perception of loudness", giving a more relaxed compression.
 //!
 //! ```text
-//! drive       = max(|x_0|, |x_1|, …)
+//! drive       = max(|x_0|, |x_1|, …)            (Peak)
+//!             = max(x_0², x_1², …)              (RMS, on power)
 //! if drive > env: env ← α_atk · env + (1 - α_atk) · drive
 //! else:           env ← α_rel · env + (1 - α_rel) · drive
+//! level       = env            (Peak)
+//!             = √env           (RMS — convert power back to amplitude)
 //! ```
 //!
 //! with coefficients derived from the classical one-pole IIR time
@@ -44,10 +57,10 @@
 //! per-sample gain.
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
-use crate::{AudioFilter, AudioStreamParams};
+use crate::{AudioFilter, AudioStreamParams, EnvelopeMode};
 use oxideav_core::{AudioFrame, Result};
 
-/// Peak compressor.
+/// Peak / RMS compressor.
 #[derive(Debug, Clone)]
 pub struct Compressor {
     threshold_db: f32,
@@ -58,6 +71,8 @@ pub struct Compressor {
     /// Soft-knee width in dB. `0.0` → hard knee.
     knee_db: f32,
     makeup_gain_db: f32,
+    /// Sidechain sensing mode — peak (default) or RMS (power-averaged).
+    detector: EnvelopeMode,
     state: Option<CompressorState>,
 }
 
@@ -96,8 +111,43 @@ impl Compressor {
             release_ms: release_ms.max(0.0),
             knee_db: knee_db.max(0.0),
             makeup_gain_db,
+            detector: EnvelopeMode::Peak,
             state: None,
         }
+    }
+
+    /// Build a compressor with an explicit detector sensing mode.
+    ///
+    /// Identical to [`Compressor::new`] but lets the caller select
+    /// [`EnvelopeMode::Rms`] (power-averaged, perceptually-relaxed) in
+    /// place of the default [`EnvelopeMode::Peak`]. See the module-level
+    /// "Detector" section.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_detector(
+        threshold_db: f32,
+        ratio: f32,
+        attack_ms: f32,
+        release_ms: f32,
+        knee_db: f32,
+        makeup_gain_db: f32,
+        detector: EnvelopeMode,
+    ) -> Self {
+        Self {
+            detector,
+            ..Self::new(
+                threshold_db,
+                ratio,
+                attack_ms,
+                release_ms,
+                knee_db,
+                makeup_gain_db,
+            )
+        }
+    }
+
+    /// Current detector sensing mode (peak vs RMS).
+    pub fn detector(&self) -> EnvelopeMode {
+        self.detector
     }
 
     /// Brickwall limiter constructor — ratio = ∞.
@@ -136,13 +186,16 @@ impl Compressor {
         } else {
             1.0 / self.ratio
         };
+        let rms = self.detector == EnvelopeMode::Rms;
         let state = self.state.as_mut().expect("ensure_state ran");
 
         for s in 0..n_samples {
-            // Peak across channels.
+            // Sidechain drive across channels. Peak mode smooths the
+            // rectified amplitude `|x|`; RMS mode smooths the power `x²`
+            // and converts back to amplitude after the follower.
             let mut drive = 0.0f32;
             for ch in channels.iter().take(n_chan) {
-                let v = ch[s].abs();
+                let v = if rms { ch[s] * ch[s] } else { ch[s].abs() };
                 if v > drive {
                     drive = v;
                 }
@@ -155,8 +208,16 @@ impl Compressor {
                 state.env = state.alpha_rel * state.env + (1.0 - state.alpha_rel) * drive;
             }
 
-            // dB drive of envelope (floor ≈ -200 dBFS).
-            let env_db = 20.0 * state.env.max(1.0e-10).log10();
+            // Convert the smoothed estimate to an amplitude level. For
+            // RMS the follower holds power, so √env recovers amplitude.
+            let level = if rms {
+                state.env.max(0.0).sqrt()
+            } else {
+                state.env
+            };
+
+            // dB drive of level (floor ≈ -200 dBFS).
+            let env_db = 20.0 * level.max(1.0e-10).log10();
             let gr_db = static_gain_reduction_db(env_db, threshold_db, knee, inv_ratio);
             let gain = 10.0f32.powf(gr_db / 20.0) * makeup_lin;
 
@@ -323,6 +384,79 @@ mod tests {
             "gain at t/4 = {} dB should be less reductive than steady {} dB",
             g_q_db,
             g_end_db
+        );
+    }
+
+    #[test]
+    fn detector_defaults_to_peak() {
+        let comp = Compressor::new(-10.0, 4.0, 5.0, 50.0, 0.0, 0.0);
+        assert_eq!(comp.detector(), EnvelopeMode::Peak);
+        let lim = Compressor::limiter(-6.0, 0.5, 30.0);
+        assert_eq!(lim.detector(), EnvelopeMode::Peak);
+    }
+
+    #[test]
+    fn rms_detector_settles_on_true_rms_of_sine() {
+        // A sine of amplitude A has RMS = A/√2 (≈ −3.01 dB below the
+        // peak). With time constants long relative to the sine period the
+        // power follower averages x² and the detector level converges to
+        // the true RMS. The over-threshold drive is then computed from
+        // the RMS level, so the steady gain reduction is set by how far
+        // the *RMS* sits above the threshold — independent of the peak.
+        //
+        // Threshold chosen so the sine's RMS sits exactly 12 dB over:
+        // RMS_dB = -10 (peak) - 3.01 = -13.01 dBFS, threshold = -25.01.
+        let fs = 48_000u32;
+        let peak_amp = 10.0f32.powf(-10.0 / 20.0); // sine peak at -10 dBFS
+                                                   // Sine RMS is 20·log10(1/√2) = -3.0103 dB below the peak.
+        let rms_db = -10.0 + 20.0 * (1.0f32 / 2.0f32.sqrt()).log10(); // ≈ -13.01 dBFS
+        let thresh_db = rms_db - 12.0; // RMS is 12 dB over
+        let ratio = 4.0f32;
+        // 50 ms time constants ≈ 50 periods of the 1 kHz tone → the x²
+        // ripple is well averaged.
+        let x = sine(peak_amp, 1_000.0, fs, 96_000);
+        let mut comp =
+            Compressor::with_detector(thresh_db, ratio, 50.0, 50.0, 0.0, 0.0, EnvelopeMode::Rms);
+        comp.ensure_state(fs);
+        let mut ch = vec![x.clone()];
+        comp.process_block(&mut ch);
+
+        // The applied gain is nearly constant once settled (ripple is
+        // small), so measure it directly at the tail amplitude peaks.
+        let tail = 48_000usize;
+        let mut acc = 0.0f64;
+        let mut cnt = 0usize;
+        for i in tail..x.len() {
+            if x[i].abs() > peak_amp * 0.9 {
+                acc += db(ch[0][i] / x[i]) as f64;
+                cnt += 1;
+            }
+        }
+        let gr = (acc / cnt as f64) as f32;
+        // RMS 12 dB over, 4:1 → gr = 12 · (1/4 − 1) = −9 dB.
+        assert!(
+            (gr + 9.0).abs() < 1.0,
+            "RMS-detector steady reduction = {gr} dB (expected ≈ -9 from RMS-over-threshold)"
+        );
+    }
+
+    #[test]
+    fn rms_detector_steady_state_matches_dc_amplitude() {
+        // For a constant (DC) drive there is no peak-vs-RMS gap, so an
+        // RMS detector must converge to the same gain reduction as a
+        // peak detector. 12 dB over, 4:1 → ≈ -9 dB either way.
+        let fs = 48_000u32;
+        let amp = 10.0f32.powf(-8.0 / 20.0); // -8 dBFS = 12 dB over -20
+        let x = vec![amp; fs as usize / 2];
+        let mut comp =
+            Compressor::with_detector(-20.0, 4.0, 5.0, 50.0, 0.0, 0.0, EnvelopeMode::Rms);
+        comp.ensure_state(fs);
+        let mut ch = vec![x.clone()];
+        comp.process_block(&mut ch);
+        let g_end = db(ch[0][ch[0].len() - 1] / x[x.len() - 1]);
+        assert!(
+            (g_end + 9.0).abs() < 1.0,
+            "RMS steady-state on DC = {g_end} dB (expected ≈ -9)"
         );
     }
 
