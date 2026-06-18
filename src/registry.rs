@@ -33,6 +33,8 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("biquad", Box::new(make_biquad));
     ctx.filters
         .register("compressor", Box::new(make_compressor));
+    ctx.filters
+        .register("parallel_compressor", Box::new(make_parallel_compressor));
     ctx.filters.register("limiter", Box::new(make_limiter));
     ctx.filters
         .register("dc_blocker", Box::new(make_dc_blocker));
@@ -554,6 +556,48 @@ fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
     };
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(comp),
+        in_port,
+        out_port,
+    )))
+}
+
+/// `{"filter": "parallel_compressor", "threshold_db": -30.0,
+/// "ratio": 10.0, "attack_ms": 5.0, "release_ms": 80.0, "knee_db": 6.0,
+/// "dry_db": 0.0, "wet_db": -6.0, "detector": "peak"}` — parallel
+/// ("New York" / "Motown") compression. Blends a compressed wet copy
+/// of the input under the untouched dry signal: quiet detail is
+/// lifted, peaks are preserved. `dry_db` / `wet_db` trim the two paths
+/// before the sum; `detector` selects `"peak"` (default) or `"rms"`.
+fn make_parallel_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::{EnvelopeMode, ParallelCompressor};
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
+    let detector = match get_str("detector") {
+        Some("rms") => EnvelopeMode::Rms,
+        _ => EnvelopeMode::Peak,
+    };
+    let pc = ParallelCompressor::with_mix(
+        get_f64("threshold_db", -30.0) as f32,
+        get_f64("ratio", 10.0) as f32,
+        get_f64("attack_ms", 5.0) as f32,
+        get_f64("release_ms", 80.0) as f32,
+        get_f64("knee_db", 6.0) as f32,
+        get_f64("dry_db", 0.0) as f32,
+        get_f64("wet_db", 0.0) as f32,
+        detector,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(pc),
         in_port,
         out_port,
     )))

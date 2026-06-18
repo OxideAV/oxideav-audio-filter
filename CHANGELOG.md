@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 336: `parallel_compressor` — parallel ("New York" / "Motown")
+  compression, grounded in the "Parallel compression" section of
+  `docs/audio/filter/wikipedia-dynamic-range-compression.html`
+  ("Inserting the compressor in a parallel signal path is known as
+  parallel compression. It is a form of upward compression … Combining
+  a linear signal with a compressor and then reducing the output gain
+  of the compression chain results in low-level detail enhancement
+  without any peak reduction; the compressor significantly adds to the
+  combined gain at low levels only."). The dry input is split: one copy
+  passes through untouched, the other through a soft-knee compressor,
+  and the two are summed (`y = x·dry_lin + comp(x)·wet_lin`). Reuses the
+  exact static soft-knee curve, one-pole attack/release follower, and
+  selectable peak/RMS detector of `Compressor`, peak-linked across
+  channels so both paths' stereo image is preserved.
+  `ParallelCompressor::new` gives unity dry/wet trims + peak detector;
+  `with_mix` exposes `dry_db` / `wet_db` trims (the inner make-up gain
+  is folded into `wet_db`) + detector mode. Registry entry
+  `"parallel_compressor"` accepts JSON `threshold_db` / `ratio` /
+  `attack_ms` / `release_ms` / `knee_db` / `dry_db` / `wet_db` /
+  `detector` keys. 9 new unit tests: dry-only passthrough (wet muted →
+  bit-identical), quiet-passage +6 dB lift from the un-reduced wet path,
+  loud peak gains markedly less than a quiet passage (peaks preserved),
+  `wet_db = -6` halves the lift to +3.52 dB, `dry_db = +6` doubles the
+  dry path, peak-linked detector across channels, unity-trim/peak
+  defaults, empty-block no-op, sample-rate-change coefficient rebuild.
 - round 329: `compressor` peak / RMS detector — added a selectable
   sidechain sensing mode to `Compressor`, grounded in the "Peak vs RMS
   sensing" section of
