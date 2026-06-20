@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 352: `resample` band-limited-interpolation milestone, grounded in
+  `docs/audio/filter/jos-theory-of-sample-rate-conversion.html` /
+  `jos-bandlimited-interpolation.html` / `jos-resample.html`. Added a
+  closed-form `prototype_response_db(freq_hz)` DTFT evaluator of the
+  windowed-sinc anti-aliasing prototype (0 dB DC reference) plus
+  `passband_edge_hz`, `up_factor`, `down_factor`, `src_rate`, `dst_rate`
+  accessors (retiring the `#[allow(dead_code)]` `dst_rate` field). Seven
+  new property tests assert the design directly: `up·src = down·dst = L`
+  with coprime `up`/`down`, passband flat to ±0.05 dB out to 0.8·edge,
+  exactly −6.02 dB at the band edge, ≥ 70 dB stop-band rejection by
+  1.2·edge, monotone transition band, end-to-end anti-aliasing
+  (above-new-Nyquist tone rejected ≥ 40 dB on a 48 k→16 k downsample),
+  and DC preservation through integer interpolation.
+
+### Changed
+
+- round 352: `resample` anti-aliasing prototype length now **scales with
+  `max(up, down)`** (spanning a fixed number of sinc zero-crossings of the
+  design cutoff) instead of a fixed 32-tap window. A short fixed window
+  produced a wide transition under decimation that leaked aliasing —
+  measured ≈ −13 dB rejection at 48 k→16 k (an above-Nyquist tone folding
+  back into band); the ratio-scaled length restores ≥ 80 dB prototype
+  stop-band rejection and ≥ 40 dB end-to-end alias rejection while
+  preserving the existing round-trip and output-rate behaviour. The
+  per-output history depth (`taps_per_phase`) became a runtime field.
+
 - round 336: `parallel_compressor` — parallel ("New York" / "Motown")
   compression, grounded in the "Parallel compression" section of
   `docs/audio/filter/wikipedia-dynamic-range-compression.html`
