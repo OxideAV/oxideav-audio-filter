@@ -524,11 +524,14 @@ fn make_biquad(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
 
 /// `{"filter": "compressor", "threshold_db": -18.0, "ratio": 4.0,
 /// "attack_ms": 10.0, "release_ms": 100.0, "knee_db": 6.0,
-/// "makeup_gain_db": 0.0, "detector": "peak"}`. `detector` selects the
-/// sidechain sensing mode (`"peak"`, default, or `"rms"` for the
-/// power-averaged perceptually-relaxed detector).
+/// "makeup_gain_db": 0.0, "detector": "peak", "topology": "feedforward"}`.
+/// `detector` selects the sidechain sensing mode (`"peak"`, default, or
+/// `"rms"` for the power-averaged perceptually-relaxed detector).
+/// `topology` selects the detector placement (`"feedforward"`, default —
+/// senses the input; or `"feedback"` — senses the previous output for a
+/// softer, program-dependent vintage curve).
 fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::{Compressor, EnvelopeMode};
+    use crate::{Compressor, DetectorTopology, EnvelopeMode};
     let p = params.as_object();
     let get_f64 = |k: &str, dflt: f64| {
         p.and_then(|m| m.get(k))
@@ -540,7 +543,11 @@ fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
         Some("rms") => EnvelopeMode::Rms,
         _ => EnvelopeMode::Peak,
     };
-    let comp = Compressor::with_detector(
+    let topology = match get_str("topology") {
+        Some("feedback") | Some("fb") => DetectorTopology::Feedback,
+        _ => DetectorTopology::FeedForward,
+    };
+    let comp = Compressor::with_topology(
         get_f64("threshold_db", -18.0) as f32,
         get_f64("ratio", 4.0) as f32,
         get_f64("attack_ms", 10.0) as f32,
@@ -548,6 +555,7 @@ fn make_compressor(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
         get_f64("knee_db", 0.0) as f32,
         get_f64("makeup_gain_db", 0.0) as f32,
         detector,
+        topology,
     );
     let in_port = audio_in_port(inputs);
     let out_port = PortSpec {
@@ -2410,4 +2418,45 @@ fn make_stereo_balance_meter(params: &Value, inputs: &[PortSpec]) -> Result<Box<
         in_port,
         out_port,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn audio_inputs() -> Vec<PortSpec> {
+        vec![PortSpec::audio("in", 48_000, 2, SampleFormat::F32)]
+    }
+
+    #[test]
+    fn compressor_topology_key_parses_both_values() {
+        // Default (no topology key) and explicit feedforward / feedback /
+        // alias must all construct a filter without error — guards the
+        // JSON `topology` wiring against a typo in the match.
+        for v in [
+            json!({"threshold_db": -18.0, "ratio": 4.0}),
+            json!({"threshold_db": -18.0, "ratio": 4.0, "topology": "feedforward"}),
+            json!({"threshold_db": -18.0, "ratio": 4.0, "topology": "feedback"}),
+            json!({"threshold_db": -18.0, "ratio": 4.0, "topology": "fb"}),
+            // Unknown value falls back to the default feed-forward.
+            json!({"threshold_db": -18.0, "ratio": 4.0, "topology": "bogus"}),
+        ] {
+            assert!(
+                make_compressor(&v, &audio_inputs()).is_ok(),
+                "make_compressor failed for params {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn compressor_detector_and_topology_are_independent_keys() {
+        // detector + topology can be set together (orthogonal axes).
+        let v = json!({
+            "threshold_db": -20.0, "ratio": 8.0, "attack_ms": 5.0,
+            "release_ms": 80.0, "knee_db": 6.0, "makeup_gain_db": 2.0,
+            "detector": "rms", "topology": "feedback"
+        });
+        assert!(make_compressor(&v, &audio_inputs()).is_ok());
+    }
 }
