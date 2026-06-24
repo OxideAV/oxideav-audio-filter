@@ -358,7 +358,7 @@ pub use bitcrusher::Bitcrusher;
 pub use brown_noise::BrownNoise;
 pub use chorus::Chorus;
 pub use comb_filter::{CombFilter, CombMode};
-pub use compressor::Compressor;
+pub use compressor::{Compressor, DetectorTopology};
 pub use crest_factor_meter::CrestFactorMeter;
 pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;

@@ -1,12 +1,39 @@
-//! Compressor with soft-knee, attack/release follower, make-up gain, and
-//! a selectable peak / RMS detector.
+//! Compressor with soft-knee, attack/release follower, make-up gain, a
+//! selectable peak / RMS detector, and a selectable feed-forward /
+//! feedback detector topology.
 //!
-//! # Detector
+//! # Detector topology
 //!
-//! The detector tracks the level across all channels with a one-pole
-//! envelope follower. Two sensing modes are offered (see the "Peak vs
-//! RMS sensing" section of `docs/audio/filter/`'s dynamic-range
-//! compression reference):
+//! The `docs/audio/filter/` dynamic-range compression reference's
+//! "Design" section distinguishes two detector placements:
+//!
+//! * **Feed-forward** (default) — the signal is split; one copy goes to
+//!   the variable-gain amplifier and the other to the side-chain where
+//!   the level is measured. The measured level controls the amplifier.
+//!   The reference notes this "is used today in most compressors".
+//! * **Feedback** — the "earlier designs were based on a feedback layout
+//!   where the signal level was measured *after* the amplifier". The
+//!   side-chain reads the compressor's own output instead of its input,
+//!   so the loop is self-stabilising: as gain reduction lowers the
+//!   output, the detector sees a quieter signal and backs off, settling
+//!   on a softer, more program-dependent gain-reduction curve (the
+//!   characteristic gentle "knee" of vintage opto / vari-mu units).
+//!
+//! In the discrete-time realisation the feedback detector drives the
+//! envelope from the previous output sample `y[n-1]` (one-sample loop
+//! delay, the digital analogue of the analog feedback path):
+//!
+//! ```text
+//! feed-forward:  drive[n] from x[n]        (input)
+//! feedback:      drive[n] from y[n-1]      (previous output)
+//! ```
+//!
+//! # Sensing
+//!
+//! Orthogonally to the topology, the detector tracks the level across
+//! all channels with a one-pole envelope follower. Two sensing modes are
+//! offered (see the "Peak vs RMS sensing" section of
+//! `docs/audio/filter/`'s dynamic-range compression reference):
 //!
 //! * **Peak** (default) — the follower smooths the rectified amplitude
 //!   `max(|x_0|, |x_1|, …)`. Provides tight peak-level control but does
@@ -60,6 +87,22 @@ use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams, EnvelopeMode};
 use oxideav_core::{AudioFrame, Result};
 
+/// Detector placement relative to the variable-gain amplifier.
+///
+/// Mirrors the "Design" section of `docs/audio/filter/`'s dynamic-range
+/// compression reference (feed-forward vs feedback layout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DetectorTopology {
+    /// Side-chain measures the **input** signal (modern default — "used
+    /// today in most compressors").
+    #[default]
+    FeedForward,
+    /// Side-chain measures the **output** signal (the earlier vintage
+    /// layout — "the signal level was measured after the amplifier").
+    /// Self-stabilising loop with a softer, program-dependent curve.
+    Feedback,
+}
+
 /// Peak / RMS compressor.
 #[derive(Debug, Clone)]
 pub struct Compressor {
@@ -73,6 +116,8 @@ pub struct Compressor {
     makeup_gain_db: f32,
     /// Sidechain sensing mode — peak (default) or RMS (power-averaged).
     detector: EnvelopeMode,
+    /// Detector placement — feed-forward (default) or feedback.
+    topology: DetectorTopology,
     state: Option<CompressorState>,
 }
 
@@ -85,6 +130,10 @@ struct CompressorState {
     alpha_rel: f32,
     /// Linear envelope follower across channels.
     env: f32,
+    /// Last written output sample per channel, carried across blocks so a
+    /// feedback detector reads `y[n-1]` continuously. Empty until the
+    /// first block fixes the channel count.
+    prev_out: Vec<f32>,
 }
 
 impl Compressor {
@@ -112,6 +161,7 @@ impl Compressor {
             knee_db: knee_db.max(0.0),
             makeup_gain_db,
             detector: EnvelopeMode::Peak,
+            topology: DetectorTopology::FeedForward,
             state: None,
         }
     }
@@ -150,6 +200,42 @@ impl Compressor {
         self.detector
     }
 
+    /// Build a compressor with an explicit detector topology.
+    ///
+    /// Identical to [`Compressor::with_detector`] but also selects
+    /// [`DetectorTopology::Feedback`] (vintage post-amplifier sensing) in
+    /// place of the default [`DetectorTopology::FeedForward`]. See the
+    /// module-level "Detector topology" section.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_topology(
+        threshold_db: f32,
+        ratio: f32,
+        attack_ms: f32,
+        release_ms: f32,
+        knee_db: f32,
+        makeup_gain_db: f32,
+        detector: EnvelopeMode,
+        topology: DetectorTopology,
+    ) -> Self {
+        Self {
+            topology,
+            ..Self::with_detector(
+                threshold_db,
+                ratio,
+                attack_ms,
+                release_ms,
+                knee_db,
+                makeup_gain_db,
+                detector,
+            )
+        }
+    }
+
+    /// Current detector topology (feed-forward vs feedback).
+    pub fn topology(&self) -> DetectorTopology {
+        self.topology
+    }
+
     /// Brickwall limiter constructor — ratio = ∞.
     pub fn limiter(threshold_db: f32, attack_ms: f32, release_ms: f32) -> Self {
         Self::new(threshold_db, f32::INFINITY, attack_ms, release_ms, 0.0, 0.0)
@@ -166,6 +252,7 @@ impl Compressor {
                 alpha_atk: time_constant_alpha(self.attack_ms, sample_rate),
                 alpha_rel: time_constant_alpha(self.release_ms, sample_rate),
                 env: 0.0,
+                prev_out: Vec::new(),
             });
         }
     }
@@ -187,15 +274,33 @@ impl Compressor {
             1.0 / self.ratio
         };
         let rms = self.detector == EnvelopeMode::Rms;
+        let feedback = self.topology == DetectorTopology::Feedback;
         let state = self.state.as_mut().expect("ensure_state ran");
 
         for s in 0..n_samples {
-            // Sidechain drive across channels. Peak mode smooths the
-            // rectified amplitude `|x|`; RMS mode smooths the power `x²`
-            // and converts back to amplitude after the follower.
+            // Sidechain drive across channels (peak-linked). Feed-forward
+            // measures the **input** `x[n]`; feedback measures the
+            // **previous output** `y[n-1]` (one-sample loop delay, the
+            // digital analogue of the analog feedback path). Peak mode
+            // smooths the rectified amplitude `|·|`; RMS mode smooths the
+            // power `·²` and converts back to amplitude after the
+            // follower.
             let mut drive = 0.0f32;
-            for ch in channels.iter().take(n_chan) {
-                let v = if rms { ch[s] * ch[s] } else { ch[s].abs() };
+            for (ch_idx, ch) in channels.iter().take(n_chan).enumerate() {
+                // In feedback mode at `s > 0` the cell `ch[s-1]` already
+                // holds the written output `y[s-1]`; at `s == 0` there is
+                // no prior output, so the side-chain reads the carried
+                // `prev_out` from the previous block (0 at stream start).
+                let sense = if feedback {
+                    if s == 0 {
+                        state.prev_out.get(ch_idx).copied().unwrap_or(0.0)
+                    } else {
+                        ch[s - 1]
+                    }
+                } else {
+                    ch[s]
+                };
+                let v = if rms { sense * sense } else { sense.abs() };
                 if v > drive {
                     drive = v;
                 }
@@ -225,6 +330,18 @@ impl Compressor {
                 ch[s] *= gain;
             }
         }
+
+        // Carry the last output sample(s) so a feedback detector spanning
+        // block boundaries reads `y[n-1]` continuously.
+        for (ch_idx, ch) in channels.iter().take(n_chan).enumerate() {
+            let last = ch.last().copied().unwrap_or(0.0);
+            if ch_idx < state.prev_out.len() {
+                state.prev_out[ch_idx] = last;
+            } else {
+                state.prev_out.push(last);
+            }
+        }
+        state.prev_out.truncate(n_chan);
     }
 }
 
@@ -457,6 +574,187 @@ mod tests {
         assert!(
             (g_end + 9.0).abs() < 1.0,
             "RMS steady-state on DC = {g_end} dB (expected ≈ -9)"
+        );
+    }
+
+    #[test]
+    fn topology_defaults_to_feed_forward() {
+        let comp = Compressor::new(-10.0, 4.0, 5.0, 50.0, 0.0, 0.0);
+        assert_eq!(comp.topology(), DetectorTopology::FeedForward);
+        let rms = Compressor::with_detector(-10.0, 4.0, 5.0, 50.0, 0.0, 0.0, EnvelopeMode::Rms);
+        assert_eq!(rms.topology(), DetectorTopology::FeedForward);
+    }
+
+    #[test]
+    fn with_topology_preserves_other_params() {
+        let comp = Compressor::with_topology(
+            -18.0,
+            8.0,
+            7.0,
+            120.0,
+            6.0,
+            3.0,
+            EnvelopeMode::Rms,
+            DetectorTopology::Feedback,
+        );
+        assert_eq!(comp.topology(), DetectorTopology::Feedback);
+        assert_eq!(comp.detector(), EnvelopeMode::Rms);
+        assert_eq!(comp.threshold_db, -18.0);
+        assert_eq!(comp.ratio, 8.0);
+        assert_eq!(comp.knee_db, 6.0);
+        assert_eq!(comp.makeup_gain_db, 3.0);
+    }
+
+    #[test]
+    fn feedback_below_threshold_is_identity_like_feed_forward() {
+        // With no make-up gain and the drive below threshold, neither the
+        // input (FF) nor the output (FB) ever crosses the threshold, so a
+        // feedback detector must pass the signal through just like FF.
+        let fs = 48_000u32;
+        let amp = 10.0f32.powf(-20.0 / 20.0); // -20 dBFS, threshold -10
+        let x = sine(amp, 1_000.0, fs, 8_192);
+        let mut comp = Compressor::with_topology(
+            -10.0,
+            4.0,
+            5.0,
+            50.0,
+            0.0,
+            0.0,
+            EnvelopeMode::Peak,
+            DetectorTopology::Feedback,
+        );
+        comp.ensure_state(fs);
+        let mut ch = vec![x.clone()];
+        comp.process_block(&mut ch);
+        let gain_db = db(rms(&ch[0][4_096..])) - db(rms(&x[4_096..]));
+        assert!(
+            gain_db.abs() < 0.6,
+            "feedback below-threshold gain = {gain_db} dB (expected 0)"
+        );
+    }
+
+    #[test]
+    fn feedback_reduces_less_than_feed_forward() {
+        // A feedback detector senses the already-reduced *output*, so the
+        // loop self-stabilises on a softer gain reduction than the
+        // feed-forward path, which senses the full-level input. For the
+        // same threshold / ratio / timings, the feedback steady-state
+        // gain reduction must be strictly *smaller in magnitude* (gain
+        // closer to unity).
+        let fs = 48_000u32;
+        let amp = 10.0f32.powf(-8.0 / 20.0); // -8 dBFS DC = 12 dB over -20
+        let x = vec![amp; fs as usize / 2];
+
+        let mut ff = Compressor::new(-20.0, 4.0, 5.0, 50.0, 0.0, 0.0);
+        ff.ensure_state(fs);
+        let mut cff = vec![x.clone()];
+        ff.process_block(&mut cff);
+        let ff_gr = db(cff[0][cff[0].len() - 1] / x[x.len() - 1]);
+
+        let mut fb = Compressor::with_topology(
+            -20.0,
+            4.0,
+            5.0,
+            50.0,
+            0.0,
+            0.0,
+            EnvelopeMode::Peak,
+            DetectorTopology::Feedback,
+        );
+        fb.ensure_state(fs);
+        let mut cfb = vec![x.clone()];
+        fb.process_block(&mut cfb);
+        let fb_gr = db(cfb[0][cfb[0].len() - 1] / x[x.len() - 1]);
+
+        // Both must reduce (negative dB), and feedback must reduce less.
+        assert!(ff_gr < -1.0, "feed-forward should reduce, got {ff_gr} dB");
+        assert!(fb_gr < -0.5, "feedback should still reduce, got {fb_gr} dB");
+        assert!(
+            fb_gr > ff_gr + 0.5,
+            "feedback GR {fb_gr} dB should be softer (less reductive) than feed-forward {ff_gr} dB"
+        );
+    }
+
+    #[test]
+    fn feedback_self_consistent_fixed_point() {
+        // The feedback loop on a steady DC drive settles at a fixed point
+        // where the *output* level, fed back, produces exactly the gain
+        // that yields that output: y = x · g(y). Verify the converged
+        // output is consistent with the static curve evaluated at the
+        // output's own dB level (to within a small tolerance).
+        let fs = 48_000u32;
+        let x_amp = 10.0f32.powf(-8.0 / 20.0); // -8 dBFS, 12 dB over -20
+        let x = vec![x_amp; fs as usize]; // 1 s, long enough to settle
+        let mut fb = Compressor::with_topology(
+            -20.0,
+            4.0,
+            1.0,
+            20.0,
+            0.0,
+            0.0,
+            EnvelopeMode::Peak,
+            DetectorTopology::Feedback,
+        );
+        fb.ensure_state(fs);
+        let mut ch = vec![x.clone()];
+        fb.process_block(&mut ch);
+        let y = ch[0][ch[0].len() - 1];
+        // Gain implied by the converged output.
+        let g = y / x_amp;
+        // Static curve evaluated at the OUTPUT level (feedback sense).
+        let y_db = 20.0 * y.abs().max(1e-10).log10();
+        let gr_db = static_gain_reduction_db(y_db, -20.0, 0.0, 1.0 / 4.0);
+        let g_expected = 10.0f32.powf(gr_db / 20.0);
+        assert!(
+            (db(g) - db(g_expected)).abs() < 0.3,
+            "feedback fixed point: applied {} dB vs curve-at-output {} dB",
+            db(g),
+            db(g_expected)
+        );
+    }
+
+    #[test]
+    fn feedback_block_boundary_continuity() {
+        // Processing a constant drive in one 2N block must match
+        // processing it as two consecutive N blocks on the same filter
+        // instance (prev_out carry keeps y[n-1] continuous across the
+        // boundary). Compare the second-half tails.
+        let fs = 48_000u32;
+        let amp = 10.0f32.powf(-8.0 / 20.0);
+        let n = fs as usize / 4;
+        let make = || {
+            Compressor::with_topology(
+                -20.0,
+                4.0,
+                2.0,
+                40.0,
+                0.0,
+                0.0,
+                EnvelopeMode::Peak,
+                DetectorTopology::Feedback,
+            )
+        };
+
+        // One 2N block.
+        let mut whole = make();
+        whole.ensure_state(fs);
+        let mut cw = vec![vec![amp; 2 * n]];
+        whole.process_block(&mut cw);
+
+        // Two N blocks.
+        let mut split = make();
+        split.ensure_state(fs);
+        let mut a = vec![vec![amp; n]];
+        split.process_block(&mut a);
+        let mut b = vec![vec![amp; n]];
+        split.process_block(&mut b);
+
+        // Last sample of each path must agree (both fully settled).
+        let last_whole = cw[0][2 * n - 1];
+        let last_split = b[0][n - 1];
+        assert!(
+            (last_whole - last_split).abs() < 1e-5,
+            "block-boundary discontinuity: whole {last_whole} vs split {last_split}"
         );
     }
 
