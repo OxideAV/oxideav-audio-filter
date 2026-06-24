@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 368: `compressor` **feedback detector topology**, grounded in the
+  "Design" section of
+  `docs/audio/filter/wikipedia-dynamic-range-compression.html`
+  (feed-forward vs feedback layout — "earlier designs … measured the
+  signal level after the amplifier"). New `DetectorTopology { FeedForward,
+  Feedback }` enum, orthogonal to the existing peak/RMS `EnvelopeMode`
+  sensing. Feed-forward (default) senses the input; feedback senses the
+  previous output `y[n-1]` (one-sample loop delay), a self-stabilising
+  loop that settles on a softer, program-dependent gain-reduction curve
+  (vintage opto / vari-mu character). `Compressor::with_topology`
+  constructor + `topology()` accessor; `new()` / `with_detector()` keep
+  the feed-forward default byte-for-byte; `prev_out` carry keeps `y[n-1]`
+  continuous across block boundaries. Registry `topology` JSON key
+  (`"feedforward"` default / `"feedback"` / `"fb"`). Seven new tests:
+  defaults, param preservation, below-threshold identity, feedback
+  reduces less than feed-forward, self-consistent loop fixed point,
+  block-boundary continuity, and registry key parsing.
+
 - round 352: `resample` band-limited-interpolation milestone, grounded in
   `docs/audio/filter/jos-theory-of-sample-rate-conversion.html` /
   `jos-bandlimited-interpolation.html` / `jos-resample.html`. Added a
