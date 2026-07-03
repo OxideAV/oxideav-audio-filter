@@ -1,5 +1,7 @@
 # oxideav-audio-filter
 
+[![CI](https://github.com/OxideAV/oxideav-audio-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/OxideAV/oxideav-audio-filter/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/oxideav-audio-filter.svg)](https://crates.io/crates/oxideav-audio-filter) [![docs.rs](https://docs.rs/oxideav-audio-filter/badge.svg)](https://docs.rs/oxideav-audio-filter) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Pure-Rust audio filters (volume, gate, echo, resample, spectrogram) for oxideav
 
 Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework — a pure-Rust media transcoding and streaming stack. Codec, container, and filter crates are implemented from the spec (no C codec libraries linked or wrapped, no `*-sys` crates). Optional hardware-engine crates (`oxideav-videotoolbox` / `-audiotoolbox` / `-vaapi` / `-vdpau` / `-nvidia` / `-vulkan-video`) bridge to OS APIs via runtime `libloading`; pass `--no-hwaccel` (or omit the `hwaccel` feature) to opt out.
