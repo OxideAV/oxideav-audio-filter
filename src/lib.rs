@@ -434,6 +434,19 @@ pub struct AudioStreamParams {
     pub sample_rate: u32,
 }
 
+/// Constructor parameter hygiene shared by the filter family.
+///
+/// `f32::clamp` PROPAGATES NaN, so a bare `v.clamp(lo, hi)` in a
+/// constructor lets NaN straight into the DSP state, where it
+/// contaminates every later output sample (and in recursive filters
+/// never washes out). This helper scrubs NaN to `nan_fallback` first
+/// and then clamps, so ±inf land on the range bounds and NaN lands on
+/// the parameter's neutral value.
+pub(crate) fn clamp_param(v: f32, nan_fallback: f32, lo: f32, hi: f32) -> f32 {
+    let v = if v.is_nan() { nan_fallback } else { v };
+    v.clamp(lo, hi)
+}
+
 /// Streaming audio filter.
 ///
 /// Implementors process one input frame at a time and may emit zero or more

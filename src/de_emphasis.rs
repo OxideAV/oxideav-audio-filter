@@ -236,7 +236,7 @@ impl DeEmphasis {
     pub fn with_gain(curve: Curve, asymptotic_gain: f32) -> Self {
         Self {
             curve,
-            asymptotic_gain: (asymptotic_gain as f64).clamp(1.0, 1000.0),
+            asymptotic_gain: crate::clamp_param(asymptotic_gain, 10.0, 1.0, 1000.0) as f64,
             sample_rate: 0,
             coeff1: None,
             coeff2: None,

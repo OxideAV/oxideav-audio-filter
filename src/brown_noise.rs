@@ -52,7 +52,7 @@ impl BrownNoise {
     /// New generator with an explicit 64-bit seed.
     pub fn with_seed(amplitude: f32, seed: u64) -> Self {
         Self {
-            amplitude: amplitude.clamp(0.0, 1.0),
+            amplitude: crate::clamp_param(amplitude, 0.0, 0.0, 1.0),
             alpha: 0.99,
             output_gain: 3.5,
             state: seed.max(1),

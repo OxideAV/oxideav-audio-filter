@@ -61,15 +61,31 @@ struct ChorusState {
     phase: Vec<f64>,
 }
 
+/// Upper bound on the base voice delay (chorus is a short-delay effect;
+/// 1 s is already far beyond the musical regime). Bounds the per-channel
+/// ring allocation so a hostile / garbage `base_delay_ms` can never turn
+/// into a multi-gigabyte `Vec` (allocation failure aborts the process).
+pub const MAX_BASE_DELAY_MS: f32 = 1_000.0;
+
 impl Chorus {
     /// New chorus.
     ///
-    /// `n_voices` is clamped to `1..=4`. `depth_ms` is clamped to
+    /// `n_voices` is clamped to `1..=4`. `base_delay_ms` is clamped to
+    /// `[1, MAX_BASE_DELAY_MS]`. `depth_ms` is clamped to
     /// `[0, base_delay_ms - 1.0]` so the swing stays inside the line.
-    /// `mix` is clamped to `[0, 1]`.
+    /// `mix` is clamped to `[0, 1]`. Non-finite parameters fall back to
+    /// their nearest neutral value (`f32::clamp` propagates NaN).
     pub fn new(n_voices: u8, base_delay_ms: f32, depth_ms: f32, rate_hz: f32, mix: f32) -> Self {
+        let base_delay_ms = if base_delay_ms.is_finite() {
+            base_delay_ms
+        } else {
+            1.0
+        };
+        let depth_ms = if depth_ms.is_finite() { depth_ms } else { 0.0 };
+        let rate_hz = if rate_hz.is_finite() { rate_hz } else { 0.0 };
+        let mix = if mix.is_finite() { mix } else { 0.0 };
         let n_voices = n_voices.clamp(1, 4);
-        let base_delay_ms = base_delay_ms.max(1.0);
+        let base_delay_ms = base_delay_ms.clamp(1.0, MAX_BASE_DELAY_MS);
         let max_depth = (base_delay_ms - 1.0).max(0.0);
         Self {
             n_voices,

@@ -151,11 +151,23 @@ impl StreamState {
     }
 }
 
+/// Largest accepted FFT size (2²⁰-point). Bounds the window / FFT
+/// buffer allocations so a hostile / garbage `fft_size` returns a typed
+/// error instead of attempting a multi-gigabyte allocation (allocation
+/// failure aborts the process — it is not a catchable panic).
+pub const MAX_FFT_SIZE: usize = 1 << 20;
+
+/// Largest accepted raster dimension per axis. Bounds `finalize_rgb`'s
+/// `width * height * 3` output allocation (32 Ki × 32 Ki × 3 = 3 GiB is
+/// already absurd; anything beyond risks an uncatchable allocation
+/// abort or a `usize` overflow in the size arithmetic).
+pub const MAX_RASTER_DIM: u32 = 32_768;
+
 impl Spectrogram {
     pub fn new(opts: SpectrogramOptions) -> Result<Self> {
-        if !opts.fft_size.is_power_of_two() || opts.fft_size < 8 {
+        if !opts.fft_size.is_power_of_two() || opts.fft_size < 8 || opts.fft_size > MAX_FFT_SIZE {
             return Err(Error::invalid(
-                "spectrogram fft_size must be a power of two >= 8",
+                "spectrogram fft_size must be a power of two in [8, 2^20]",
             ));
         }
         if opts.hop_size == 0 || opts.hop_size > opts.fft_size {
@@ -165,6 +177,9 @@ impl Spectrogram {
         }
         if opts.width == 0 || opts.height == 0 {
             return Err(Error::invalid("spectrogram width/height must be non-zero"));
+        }
+        if opts.width > MAX_RASTER_DIM || opts.height > MAX_RASTER_DIM {
+            return Err(Error::invalid("spectrogram width/height too large"));
         }
         let window = build_window(opts.window, opts.fft_size);
         let stream = StreamState::new(&opts);

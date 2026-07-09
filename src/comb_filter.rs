@@ -173,10 +173,15 @@ pub enum CombMode {
 impl CombMode {
     fn clamp(self) -> Self {
         match self {
-            CombMode::Feedforward { gain } => CombMode::Feedforward { gain },
+            // The feedforward coefficient is unconditionally stable for
+            // any finite gain, but NaN / inf still poison the output —
+            // scrub to the same magnitude range as the feedback path.
+            CombMode::Feedforward { gain } => CombMode::Feedforward {
+                gain: crate::clamp_param(gain, 0.0, -64.0, 64.0),
+            },
             CombMode::Feedback { gain, damping } => CombMode::Feedback {
-                gain: gain.clamp(-FEEDBACK_GAIN_CLAMP, FEEDBACK_GAIN_CLAMP),
-                damping: damping.clamp(0.0, DAMPING_CLAMP),
+                gain: crate::clamp_param(gain, 0.0, -FEEDBACK_GAIN_CLAMP, FEEDBACK_GAIN_CLAMP),
+                damping: crate::clamp_param(damping, 0.0, 0.0, DAMPING_CLAMP),
             },
         }
     }

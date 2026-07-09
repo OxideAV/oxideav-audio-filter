@@ -152,43 +152,66 @@ struct Coeffs {
     a2: f64,
 }
 
+/// Coefficient-derivation parameter hygiene. Garbage parameters (NaN,
+/// ±inf, zero/negative frequency, absurd Q or gain) must never poison
+/// the recurrence with non-finite coefficients — a biquad's state is
+/// recursive, so one NaN coefficient contaminates every later output
+/// sample. NaN falls back to `default`; everything else clamps to
+/// `[lo, hi]` (note plain `f64::clamp` PROPAGATES NaN, hence the split).
+fn sane(v: f64, default: f64, lo: f64, hi: f64) -> f64 {
+    if v.is_nan() {
+        default
+    } else {
+        v.clamp(lo, hi)
+    }
+}
+
 impl Coeffs {
     fn from_kind(kind: BiquadKind, sample_rate_hz: u32) -> Self {
         let fs = sample_rate_hz.max(1) as f64;
+        // Frequencies live in (0, Nyquist); the bilinear prototypes
+        // divide by sin/cos terms that vanish at both edges, so keep a
+        // small guard band. Q and shelf slope must be strictly
+        // positive; |gain| beyond ±120 dB has no audio meaning and
+        // pushes 10^(g/40) toward overflow.
+        let f = |hz: f32| sane(hz as f64, 1_000.0, 1.0e-3, 0.499 * fs);
+        let qq = |q: f32| sane(q as f64, std::f64::consts::FRAC_1_SQRT_2, 1.0e-3, 1.0e3);
+        let g = |db: f32| sane(db as f64, 0.0, -120.0, 120.0);
+        let s = |slope: f32| sane(slope as f64, 1.0, 1.0e-3, 10.0);
         match kind {
-            BiquadKind::LowPass { cutoff_hz, q } => low_pass(fs, cutoff_hz as f64, q as f64),
-            BiquadKind::HighPass { cutoff_hz, q } => high_pass(fs, cutoff_hz as f64, q as f64),
-            BiquadKind::BandPass { center_hz, q } => band_pass(fs, center_hz as f64, q as f64),
+            BiquadKind::LowPass { cutoff_hz, q } => low_pass(fs, f(cutoff_hz), qq(q)),
+            BiquadKind::HighPass { cutoff_hz, q } => high_pass(fs, f(cutoff_hz), qq(q)),
+            BiquadKind::BandPass { center_hz, q } => band_pass(fs, f(center_hz), qq(q)),
             BiquadKind::BandPassConstantPeak { center_hz, q } => {
-                band_pass_constant_peak(fs, center_hz as f64, q as f64)
+                band_pass_constant_peak(fs, f(center_hz), qq(q))
             }
-            BiquadKind::Notch { center_hz, q } => notch(fs, center_hz as f64, q as f64),
+            BiquadKind::Notch { center_hz, q } => notch(fs, f(center_hz), qq(q)),
             BiquadKind::Peaking {
                 center_hz,
                 q,
                 gain_db,
-            } => peaking(fs, center_hz as f64, q as f64, gain_db as f64),
+            } => peaking(fs, f(center_hz), qq(q), g(gain_db)),
             BiquadKind::LowShelf {
                 cutoff_hz,
                 q,
                 gain_db,
-            } => low_shelf(fs, cutoff_hz as f64, q as f64, gain_db as f64),
+            } => low_shelf(fs, f(cutoff_hz), qq(q), g(gain_db)),
             BiquadKind::HighShelf {
                 cutoff_hz,
                 q,
                 gain_db,
-            } => high_shelf(fs, cutoff_hz as f64, q as f64, gain_db as f64),
+            } => high_shelf(fs, f(cutoff_hz), qq(q), g(gain_db)),
             BiquadKind::LowShelfSlope {
                 cutoff_hz,
                 slope,
                 gain_db,
-            } => low_shelf_slope(fs, cutoff_hz as f64, slope as f64, gain_db as f64),
+            } => low_shelf_slope(fs, f(cutoff_hz), s(slope), g(gain_db)),
             BiquadKind::HighShelfSlope {
                 cutoff_hz,
                 slope,
                 gain_db,
-            } => high_shelf_slope(fs, cutoff_hz as f64, slope as f64, gain_db as f64),
-            BiquadKind::AllPass { center_hz, q } => all_pass(fs, center_hz as f64, q as f64),
+            } => high_shelf_slope(fs, f(cutoff_hz), s(slope), g(gain_db)),
+            BiquadKind::AllPass { center_hz, q } => all_pass(fs, f(center_hz), qq(q)),
         }
     }
 }

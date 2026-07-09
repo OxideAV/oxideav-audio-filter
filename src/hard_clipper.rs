@@ -65,8 +65,8 @@ impl HardClipper {
     /// curve always has a non-degenerate linear region).
     pub fn new(drive: f32, ceiling: f32) -> Self {
         Self {
-            drive: drive.clamp(0.0, 64.0),
-            ceiling: ceiling.clamp(1e-6, 1.0),
+            drive: crate::clamp_param(drive, 1.0, 0.0, 64.0),
+            ceiling: crate::clamp_param(ceiling, 1.0, 1e-6, 1.0),
         }
     }
 

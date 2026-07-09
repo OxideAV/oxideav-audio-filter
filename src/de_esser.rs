@@ -89,11 +89,11 @@ impl DeEsser {
         attack_ms: f32,
         release_ms: f32,
     ) -> Self {
-        let cutoff = cutoff_hz.max(20.0);
+        let cutoff = crate::clamp_param(cutoff_hz, 6_000.0, 20.0, 20_000.0);
         let q = std::f32::consts::FRAC_1_SQRT_2;
         Self {
             cutoff_hz: cutoff,
-            threshold_db,
+            threshold_db: crate::clamp_param(threshold_db, 0.0, -144.0, 24.0),
             ratio: ratio.max(1.0),
             attack_ms: attack_ms.max(0.01),
             release_ms: release_ms.max(0.01),

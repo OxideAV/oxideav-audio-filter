@@ -52,8 +52,8 @@ impl TapeSaturation {
     /// New tape saturator. `drive` clamped to `[0.1, 16]`, `asymmetry`
     /// clamped to `[0, 1]`.
     pub fn new(drive: f32, asymmetry: f32) -> Self {
-        let drive = drive.clamp(0.1, 16.0);
-        let asymmetry = asymmetry.clamp(0.0, 1.0);
+        let drive = crate::clamp_param(drive, 1.0, 0.1, 16.0);
+        let asymmetry = crate::clamp_param(asymmetry, 0.0, 0.0, 1.0);
         // tanh(drive) → 1 for drive ≥ ~3, so for high drive output peaks
         // approach the literal x ≈ 1 input → 1 output mapping.
         let drive_norm = drive.tanh().max(1e-6);

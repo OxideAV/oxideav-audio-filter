@@ -52,10 +52,10 @@ impl Flanger {
     /// `mix` is clamped to `[0, 1]`.
     pub fn new(rate_hz: f32, depth_ms: f32, feedback: f32, mix: f32) -> Self {
         Self {
-            rate_hz: rate_hz.max(0.0),
-            depth_ms: depth_ms.clamp(1.0, 15.0),
-            feedback: feedback.clamp(0.0, 0.95),
-            mix: mix.clamp(0.0, 1.0),
+            rate_hz: crate::clamp_param(rate_hz, 0.0, 0.0, f32::MAX),
+            depth_ms: crate::clamp_param(depth_ms, 1.0, 1.0, 15.0),
+            feedback: crate::clamp_param(feedback, 0.0, 0.0, 0.95),
+            mix: crate::clamp_param(mix, 0.0, 0.0, 1.0),
             state: None,
         }
     }

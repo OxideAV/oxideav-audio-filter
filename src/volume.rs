@@ -20,15 +20,22 @@ pub struct Volume {
 }
 
 impl Volume {
-    /// Create a new gain stage with a linear multiplier.
+    /// Create a new gain stage with a linear multiplier. The gain
+    /// must be finite: NaN falls back to unity, and ±inf clamps to
+    /// ±10⁶ — an infinite gain would turn zero samples into NaN
+    /// (`0 × inf`), poisoning silent passages.
     pub fn new(gain: f32) -> Self {
-        Self { gain }
+        Self {
+            gain: crate::clamp_param(gain, 1.0, -1.0e6, 1.0e6),
+        }
     }
 
     /// Create a new gain stage from a decibel value: `gain = 10^(db/20)`.
+    /// `db` is clamped to ±120 dB (NaN → 0 dB) so the derived linear
+    /// gain stays finite.
     pub fn from_db(db: f32) -> Self {
         Self {
-            gain: 10.0f32.powf(db / 20.0),
+            gain: 10.0f32.powf(crate::clamp_param(db, 0.0, -120.0, 120.0) / 20.0),
         }
     }
 
@@ -37,9 +44,9 @@ impl Volume {
         self.gain
     }
 
-    /// Update the linear gain.
+    /// Update the linear gain (same hygiene as [`Volume::new`]).
     pub fn set_gain(&mut self, gain: f32) {
-        self.gain = gain;
+        self.gain = crate::clamp_param(gain, 1.0, -1.0e6, 1.0e6);
     }
 }
 

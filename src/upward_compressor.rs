@@ -173,12 +173,12 @@ impl UpwardCompressor {
         range_db: f32,
     ) -> Self {
         Self {
-            threshold_db,
-            ratio: ratio.max(1.0),
+            threshold_db: crate::clamp_param(threshold_db, 0.0, -144.0, 24.0),
+            ratio: crate::clamp_param(ratio, 1.0, 1.0, 1_000.0),
             attack_ms: attack_ms.max(0.0),
             release_ms: release_ms.max(0.0),
-            knee_db: knee_db.max(0.0),
-            range_db: range_db.max(0.0),
+            knee_db: crate::clamp_param(knee_db, 0.0, 0.0, 96.0),
+            range_db: crate::clamp_param(range_db, 0.0, 0.0, 120.0),
             state: None,
         }
     }

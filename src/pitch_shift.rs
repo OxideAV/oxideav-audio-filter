@@ -110,10 +110,15 @@ pub struct PitchShift {
 }
 
 impl PitchShift {
-    /// New pitch shifter. `semitones` is clamped to `[-12, +12]`.
+    /// New pitch shifter. `semitones` is clamped to `[-12, +12]`;
+    /// non-finite values fall back to `0` (no shift). NaN MUST be
+    /// scrubbed here: it would make `ratio()` NaN, and the grain loop's
+    /// have-enough-input comparison (`NaN >= len` is false) would then
+    /// never stop emitting — an unbounded-memory hang, not just bad
+    /// audio.
     pub fn new(semitones: f32) -> Self {
         Self {
-            semitones: semitones.clamp(-12.0, 12.0),
+            semitones: crate::clamp_param(semitones, 0.0, -12.0, 12.0),
             state: Vec::new(),
         }
     }
@@ -146,6 +151,13 @@ impl PitchShift {
             // Need read_pos + GRAIN_SIZE·ratio worth of input to build
             // the grain.
             let grain_input_end = st.read_pos + (GRAIN_SIZE as f64) * ratio;
+            // Defence in depth: a non-finite ratio / read_pos would
+            // make the comparison below permanently false and this
+            // loop would emit output forever. The constructor scrubs
+            // `semitones`, but never trust a recursive f64 cursor.
+            if !grain_input_end.is_finite() {
+                break;
+            }
             // Add 2 samples of safety for the linear interpolator.
             if grain_input_end + 2.0 >= st.input.len() as f64 {
                 break;

@@ -66,7 +66,7 @@ impl DcBlocker {
     /// near-pure DC blocker with seconds of decay.
     pub fn with_pole(pole: f32) -> Self {
         Self {
-            pole: pole.clamp(0.0, 0.99999),
+            pole: crate::clamp_param(pole, 0.995, 0.0, 0.99999),
             state: Vec::new(),
         }
     }

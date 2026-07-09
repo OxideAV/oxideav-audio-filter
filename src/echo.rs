@@ -9,11 +9,14 @@
 //! ```
 //!
 //! # Parameters
-//! * `delay_ms` — delay length in milliseconds (must be > 0).
+//! * `delay_ms` — delay length in milliseconds, clamped to
+//!   `[0, MAX_DELAY_MS]` (= 30 000 ms). Non-finite values fall back to
+//!   the minimum (a 1-sample line).
 //! * `feedback` — fraction of the delayed signal fed back into the line,
 //!   in `[0.0, 1.0]`. Higher values produce longer-tailed echoes.
+//!   Non-finite values fall back to `0`.
 //! * `mix` — wet/dry blend in `[0.0, 1.0]`. `0.0` is fully dry, `1.0` is
-//!   fully wet.
+//!   fully wet. Non-finite values fall back to `0` (dry).
 
 use crate::sample_convert::{decode_to_f32, encode_from_f32};
 use crate::{AudioFilter, AudioStreamParams};
@@ -37,10 +40,22 @@ struct EchoState {
     write_idx: Vec<usize>,
 }
 
+/// Upper bound on the delay length (30 s). Bounds the per-channel ring
+/// allocation: a hostile / garbage `delay_ms` must never turn into a
+/// multi-gigabyte `Vec` (allocation failure aborts the process — it is
+/// not a catchable panic).
+pub const MAX_DELAY_MS: f32 = 30_000.0;
+
 impl Echo {
     pub fn new(delay_ms: f32, feedback: f32, mix: f32) -> Self {
+        // `f32::clamp` propagates NaN, so scrub non-finite values
+        // explicitly — every parameter must end up in its documented
+        // range no matter what the caller passes.
+        let delay_ms = if delay_ms.is_finite() { delay_ms } else { 0.0 };
+        let feedback = if feedback.is_finite() { feedback } else { 0.0 };
+        let mix = if mix.is_finite() { mix } else { 0.0 };
         Self {
-            delay_ms,
+            delay_ms: delay_ms.clamp(0.0, MAX_DELAY_MS),
             feedback: feedback.clamp(0.0, 1.0),
             mix: mix.clamp(0.0, 1.0),
             state: None,

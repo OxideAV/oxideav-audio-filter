@@ -90,6 +90,13 @@ pub const MAX_LAGRANGE_ORDER: usize = 8;
 /// Largest supported sinc half-width (`2·N` taps total).
 pub const MAX_SINC_HALF_TAPS: usize = 32;
 
+/// Largest supported ring capacity per channel (2²² samples ≈ 87 s at
+/// 48 kHz, 16 MiB per channel). Bounds the constructor's allocation so
+/// a hostile / garbage `capacity` can never turn into a multi-gigabyte
+/// `Vec` (allocation failure aborts the process — it is not a catchable
+/// panic).
+pub const MAX_CAPACITY: usize = 1 << 22;
+
 /// Per-channel fractional-delay ring buffer with a selectable
 /// reconstruction kernel.
 ///
@@ -113,11 +120,12 @@ impl FracDelayLine {
     /// Build a line for `channels` channels with ring length `capacity`
     /// samples and interpolation kernel `interp`.
     ///
-    /// `channels` and `capacity` are forced to at least 1. Kernel
-    /// parameters are clamped to their supported ranges.
+    /// `channels` and `capacity` are forced to at least 1; `capacity`
+    /// is additionally capped at [`MAX_CAPACITY`]. Kernel parameters
+    /// are clamped to their supported ranges.
     pub fn new(channels: usize, capacity: usize, interp: Interp) -> Self {
         let channels = channels.max(1);
-        let capacity = capacity.max(1);
+        let capacity = capacity.clamp(1, MAX_CAPACITY);
         let interp = Self::sanitize(interp);
         Self {
             channels,

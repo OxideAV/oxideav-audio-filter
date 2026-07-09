@@ -118,9 +118,9 @@ impl Talkbox {
 
     /// Custom-parameter constructor.
     pub fn with(from: Vowel, to: Vowel, rate_hz: f32, q: f32, mix: f32) -> Self {
-        let rate_hz = rate_hz.clamp(0.0, 8.0);
-        let q = q.clamp(1.0, 30.0);
-        let mix = mix.clamp(0.0, 1.0);
+        let rate_hz = crate::clamp_param(rate_hz, 0.0, 0.0, 8.0);
+        let q = crate::clamp_param(q, 8.0, 1.0, 30.0);
+        let mix = crate::clamp_param(mix, 0.0, 0.0, 1.0);
         let (f1, _) = from.formants();
         let bpf_a = Biquad::new(BiquadKind::BandPass { center_hz: f1, q });
         let bpf_b = Biquad::new(BiquadKind::BandPass { center_hz: f1, q });

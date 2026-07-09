@@ -68,7 +68,7 @@ impl PinkNoise {
     /// New generator with an explicit 64-bit seed.
     pub fn with_seed(amplitude: f32, seed: u64) -> Self {
         Self {
-            amplitude: amplitude.clamp(0.0, 1.0),
+            amplitude: crate::clamp_param(amplitude, 0.0, 0.0, 1.0),
             state: seed.max(1),
             kellet: Kellet::default(),
             final_gain: 0.11,

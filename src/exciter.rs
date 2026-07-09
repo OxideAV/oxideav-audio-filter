@@ -74,9 +74,9 @@ impl Exciter {
     /// Custom-parameter exciter. Inputs are clamped to safe ranges
     /// (see the type-level docs).
     pub fn with(cutoff_hz: f32, drive: f32, mix: f32) -> Self {
-        let cutoff_hz = cutoff_hz.clamp(500.0, 18_000.0);
-        let drive = drive.clamp(0.1, 10.0);
-        let mix = mix.clamp(0.0, 1.0);
+        let cutoff_hz = crate::clamp_param(cutoff_hz, 4_000.0, 500.0, 18_000.0);
+        let drive = crate::clamp_param(drive, 1.0, 0.1, 10.0);
+        let mix = crate::clamp_param(mix, 0.0, 0.0, 1.0);
         let q = std::f32::consts::FRAC_1_SQRT_2;
         let hpf = Biquad::new(BiquadKind::HighPass { cutoff_hz, q });
         Self {

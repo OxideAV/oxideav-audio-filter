@@ -81,8 +81,8 @@ impl RingModulator {
     /// `mix` is clamped to `[0, 1]`.
     pub fn new(carrier_hz: f32, mix: f32) -> Self {
         Self {
-            carrier_hz: carrier_hz.clamp(0.0, 20_000.0),
-            mix: mix.clamp(0.0, 1.0),
+            carrier_hz: crate::clamp_param(carrier_hz, 0.0, 0.0, 20_000.0),
+            mix: crate::clamp_param(mix, 0.0, 0.0, 1.0),
             phase: 0.0,
         }
     }

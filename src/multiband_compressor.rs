@@ -135,8 +135,8 @@ impl MultibandCompressor {
         mid: BandSettings,
         high: BandSettings,
     ) -> Self {
-        let low_cutoff_hz = low_cutoff_hz.clamp(20.0, 20_000.0);
-        let mut high_cutoff_hz = high_cutoff_hz.clamp(20.0, 20_000.0);
+        let low_cutoff_hz = crate::clamp_param(low_cutoff_hz, 250.0, 20.0, 20_000.0);
+        let mut high_cutoff_hz = crate::clamp_param(high_cutoff_hz, 2_500.0, 20.0, 20_000.0);
         if high_cutoff_hz <= low_cutoff_hz {
             high_cutoff_hz = (low_cutoff_hz * 2.0).min(20_000.0);
         }

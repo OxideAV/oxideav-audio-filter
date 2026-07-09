@@ -71,8 +71,8 @@ impl Vibrato {
     /// `[0, 50]`.
     pub fn new(rate_hz: f32, depth_ms: f32) -> Self {
         Self {
-            rate_hz: rate_hz.clamp(0.0, 20.0),
-            depth_ms: depth_ms.clamp(0.0, 50.0),
+            rate_hz: crate::clamp_param(rate_hz, 0.0, 0.0, 20.0),
+            depth_ms: crate::clamp_param(depth_ms, 0.0, 0.0, 50.0),
             state: None,
         }
     }

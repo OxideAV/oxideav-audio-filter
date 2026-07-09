@@ -73,10 +73,10 @@ impl Phaser {
     pub fn new(n_stages: u8, rate_hz: f32, depth_hz: f32, feedback: f32, mix: f32) -> Self {
         Self {
             n_stages: n_stages.clamp(2, 12),
-            rate_hz: rate_hz.max(0.0),
-            depth_hz: depth_hz.max(1.0),
-            feedback: feedback.clamp(0.0, 0.95),
-            mix: mix.clamp(0.0, 1.0),
+            rate_hz: crate::clamp_param(rate_hz, 0.0, 0.0, f32::MAX),
+            depth_hz: crate::clamp_param(depth_hz, 1.0, 1.0, f32::MAX),
+            feedback: crate::clamp_param(feedback, 0.0, 0.0, 0.95),
+            mix: crate::clamp_param(mix, 0.0, 0.0, 1.0),
             state: None,
         }
     }

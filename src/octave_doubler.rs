@@ -74,8 +74,8 @@ impl OctaveDoubler {
     /// Custom-mix constructor. `dry` / `wet` clamped to `[0, 1]`.
     pub fn with(dry: f32, wet: f32, dc_block: bool) -> Self {
         Self {
-            dry: dry.clamp(0.0, 1.0),
-            wet: wet.clamp(0.0, 1.0),
+            dry: crate::clamp_param(dry, 1.0, 0.0, 1.0),
+            wet: crate::clamp_param(wet, 0.0, 0.0, 1.0),
             dc_block,
             state: Vec::new(),
         }

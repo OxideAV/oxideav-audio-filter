@@ -66,9 +66,9 @@ impl StereoImager {
 
     /// Custom-parameter constructor.
     pub fn with(cutoff_hz: f32, low_width: f32, high_width: f32) -> Self {
-        let cutoff_hz = cutoff_hz.clamp(20.0, 20_000.0);
-        let low_width = low_width.clamp(0.0, 2.0);
-        let high_width = high_width.clamp(0.0, 2.0);
+        let cutoff_hz = crate::clamp_param(cutoff_hz, 250.0, 20.0, 20_000.0);
+        let low_width = crate::clamp_param(low_width, 1.0, 0.0, 2.0);
+        let high_width = crate::clamp_param(high_width, 1.0, 0.0, 2.0);
         let q = std::f32::consts::FRAC_1_SQRT_2;
         let lpf = Biquad::new(BiquadKind::LowPass { cutoff_hz, q });
         let hpf = Biquad::new(BiquadKind::HighPass { cutoff_hz, q });

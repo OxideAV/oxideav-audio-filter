@@ -79,7 +79,7 @@ impl Limiter {
     /// * `look_ahead_samples` — 0..=2048. With 0 the limiter is causal.
     pub fn new(ceiling_db: f32, release_ms: f32, look_ahead_samples: usize) -> Self {
         Self {
-            ceiling_db,
+            ceiling_db: crate::clamp_param(ceiling_db, 0.0, -144.0, 24.0),
             release_ms: release_ms.max(0.0),
             look_ahead_samples: look_ahead_samples.min(2048),
             state: None,

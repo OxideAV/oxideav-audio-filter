@@ -150,10 +150,10 @@ impl SvfFilter {
     pub fn new(mode: SvfMode, cutoff_hz: f32, q: f32) -> Self {
         Self {
             mode,
-            cutoff_hz: cutoff_hz.max(0.0),
-            q: q.clamp(Self::MIN_Q, Self::MAX_Q),
+            cutoff_hz: crate::clamp_param(cutoff_hz, 1_000.0, 0.0, f32::MAX),
+            q: crate::clamp_param(q, 0.707, Self::MIN_Q, Self::MAX_Q),
             f_coef: 0.0,
-            q_coef: 1.0 / q.clamp(Self::MIN_Q, Self::MAX_Q),
+            q_coef: 1.0 / crate::clamp_param(q, 0.707, Self::MIN_Q, Self::MAX_Q),
             cached_sr: 0,
             state: Vec::new(),
         }

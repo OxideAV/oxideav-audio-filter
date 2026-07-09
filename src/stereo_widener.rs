@@ -33,7 +33,7 @@ impl StereoWidener {
     /// New widener. `width` is clamped to `[0, 2]`.
     pub fn new(width: f32) -> Self {
         Self {
-            width: width.clamp(0.0, 2.0),
+            width: crate::clamp_param(width, 1.0, 0.0, 2.0),
         }
     }
 

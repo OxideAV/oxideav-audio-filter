@@ -98,8 +98,8 @@ impl TransientDesigner {
     /// Custom-parameter constructor.
     pub fn with(attack: f32, sustain: f32, attack_ms_fast: f32, attack_ms_slow: f32) -> Self {
         Self {
-            attack: attack.clamp(-1.0, 1.0),
-            sustain: sustain.clamp(-1.0, 1.0),
+            attack: crate::clamp_param(attack, 0.0, -1.0, 1.0),
+            sustain: crate::clamp_param(sustain, 0.0, -1.0, 1.0),
             attack_ms_fast: attack_ms_fast.max(0.1),
             attack_ms_slow: attack_ms_slow.max(0.1),
             coeffs: None,

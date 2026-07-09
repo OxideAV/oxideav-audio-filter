@@ -204,10 +204,10 @@ impl Reverb {
     /// Create a reverb. All knobs are clamped to `[0, 1]`.
     pub fn new(room_size: f32, damping: f32, wet: f32, dry: f32) -> Self {
         Self {
-            room_size: room_size.clamp(0.0, 1.0),
-            damping: damping.clamp(0.0, 1.0),
-            wet: wet.clamp(0.0, 1.0),
-            dry: dry.clamp(0.0, 1.0),
+            room_size: crate::clamp_param(room_size, 0.5, 0.0, 1.0),
+            damping: crate::clamp_param(damping, 0.5, 0.0, 1.0),
+            wet: crate::clamp_param(wet, 0.0, 0.0, 1.0),
+            dry: crate::clamp_param(dry, 1.0, 0.0, 1.0),
             state: None,
         }
     }

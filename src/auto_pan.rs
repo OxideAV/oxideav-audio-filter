@@ -49,8 +49,8 @@ impl AutoPan {
     /// `[0, 1]`.
     pub fn new(rate_hz: f32, depth: f32) -> Self {
         Self {
-            rate_hz: rate_hz.clamp(0.0, 20.0),
-            depth: depth.clamp(0.0, 1.0),
+            rate_hz: crate::clamp_param(rate_hz, 0.0, 0.0, 20.0),
+            depth: crate::clamp_param(depth, 0.0, 0.0, 1.0),
             phase: 0.0,
         }
     }

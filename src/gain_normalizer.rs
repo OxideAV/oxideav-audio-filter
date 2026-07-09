@@ -111,7 +111,7 @@ impl GainNormalizer {
     /// Custom-parameter constructor.
     pub fn with(target_db: f32, detector_ms: f32, gain_ms: f32) -> Self {
         Self {
-            target_db: target_db.clamp(-60.0, 0.0),
+            target_db: crate::clamp_param(target_db, -16.0, -60.0, 0.0),
             detector_ms: detector_ms.max(10.0),
             gain_ms: gain_ms.max(10.0),
             max_gain_db: 24.0,
@@ -126,13 +126,13 @@ impl GainNormalizer {
 
     /// Builder: cap the upward gain (default `+24 dB`).
     pub fn with_max_gain_db(mut self, db: f32) -> Self {
-        self.max_gain_db = db.clamp(0.0, 60.0);
+        self.max_gain_db = crate::clamp_param(db, 24.0, 0.0, 60.0);
         self
     }
 
     /// Builder: cap the downward attenuation (default `-24 dB`).
     pub fn with_max_atten_db(mut self, db: f32) -> Self {
-        self.max_atten_db = db.clamp(-60.0, 0.0);
+        self.max_atten_db = crate::clamp_param(db, -24.0, -60.0, 0.0);
         self
     }
 

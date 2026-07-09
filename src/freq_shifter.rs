@@ -126,7 +126,7 @@ impl FreqShifter {
 
     /// Custom-parameter constructor.
     pub fn with(delta_hz: f32, half_taps: usize) -> Self {
-        let delta_hz = delta_hz.clamp(-10_000.0, 10_000.0);
+        let delta_hz = crate::clamp_param(delta_hz, 0.0, -10_000.0, 10_000.0);
         let half_taps = half_taps.clamp(15, 255);
         let hilbert_fir = hilbert_kernel(half_taps);
         Self {

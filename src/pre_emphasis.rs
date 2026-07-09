@@ -247,11 +247,16 @@ impl Curve {
 
     /// Time constant in seconds for the single-time-constant curves.
     /// Returns `None` for the second-order RIAA curve (which has three).
+    ///
+    /// A `Custom` time constant is scrubbed here (NaN -> 50 us, then
+    /// clamped to `[1 ns, 10 s]`) so a garbage `tau_s` can never derive
+    /// non-finite bilinear coefficients -- this accessor is the single
+    /// funnel both `PreEmphasis` and `DeEmphasis` read `tau` through.
     pub fn single_tau_s(self) -> Option<f32> {
         match self {
             Curve::Fm50us | Curve::J17 => Some(50.0e-6),
             Curve::Fm75us => Some(75.0e-6),
-            Curve::Custom { tau_s } => Some(tau_s),
+            Curve::Custom { tau_s } => Some(crate::clamp_param(tau_s, 50.0e-6, 1.0e-9, 10.0)),
             Curve::Riaa3180_318_75 => None,
         }
     }
@@ -374,7 +379,7 @@ impl PreEmphasis {
     pub fn with_gain(curve: Curve, asymptotic_gain: f32) -> Self {
         Self {
             curve,
-            asymptotic_gain: (asymptotic_gain as f64).clamp(1.0, 1000.0),
+            asymptotic_gain: crate::clamp_param(asymptotic_gain, 10.0, 1.0, 1000.0) as f64,
             sample_rate: 0,
             coeff1: None,
             coeff2: None,
