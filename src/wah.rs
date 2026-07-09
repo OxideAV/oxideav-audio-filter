@@ -28,7 +28,7 @@
 //!
 //! * `rate_hz` — LFO frequency. Default 0.8 Hz. Clamped to `(0, 20]`.
 //! * `f_min` / `f_max` — sweep extremes. Defaults 400 Hz / 2 200 Hz
-//!   (matches a Cry-Baby-style throw). Clamped so `f_min < f_max`
+//!   (a classic wah sweep throw). Clamped so `f_min < f_max`
 //!   and both `≥ 20 Hz`.
 //! * `q` — band-pass `Q`. Default 2.5. Clamped to `(0.5, 20]`.
 //! * `mix` — dry/wet mix `∈ [0, 1]`. Default 1.0 (fully wet).
@@ -56,7 +56,7 @@ pub struct Wah {
 }
 
 impl Wah {
-    /// New wah with the Cry-Baby-style preset (0.8 Hz LFO, 400–2200 Hz
+    /// New wah with the classic voicing preset (0.8 Hz LFO, 400–2200 Hz
     /// sweep, Q = 2.5, fully wet).
     pub fn new() -> Self {
         Self::with(0.8, 400.0, 2_200.0, 2.5, 1.0)
