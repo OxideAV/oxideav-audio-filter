@@ -94,7 +94,7 @@
 //! - [`DeEsser`](de_esser::DeEsser) — split-band downward compressor
 //!   targeting sibilance (LPF/HPF + per-band compressor on the high
 //!   half).
-//! - [`Wah`](wah::Wah) — LFO-swept resonant band-pass (Cry-Baby-style
+//! - [`Wah`](wah::Wah) — LFO-swept resonant band-pass (classic wah
 //!   sweep, logarithmic centre interpolation).
 //! - [`OctaveDoubler`](octave_doubler::OctaveDoubler) — full-wave-
 //!   rectifier-based octave-up layer (Octavia-style), DC-blocked.

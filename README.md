@@ -40,7 +40,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **mid_side** — explicit L/R ↔ M/S transcoder (stateless, exact roundtrip)
 - **envelope_follower** — peak / RMS amplitude envelope detector (pass-through, observe via API)
 - **de_esser** — split-band downward compressor targeting sibilance
-- **wah** — LFO-swept resonant band-pass (Cry-Baby-style log sweep)
+- **wah** — LFO-swept resonant band-pass (classic wah log sweep)
 - **octave_doubler** — Octavia-style full-wave-rectifier octave-up layer with DC block
 - **adaptive_noise_gate** — gate with self-learned asymmetric noise floor
 - **exciter** — high-band `tanh` saturation enhancer (HPF + dry mix; adds "air" without raising broadband level)
