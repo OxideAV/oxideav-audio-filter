@@ -76,6 +76,12 @@
 //!   soft-clip with asymmetric drive.
 //! - [`HumFilter`](hum_filter::HumFilter) — cascaded narrow notches at
 //!   line-mains fundamental + harmonics.
+//! - [`Crossfeed`](crossfeed::Crossfeed) — headphone crossfeed:
+//!   opposite-channel bleed, delayed by the interaural time difference
+//!   (default 300 µs, fractional-sample exact), head-shadow low-passed
+//!   (700 Hz one-pole), level-compensated so mono passes at unity.
+//!   Narrows the image the way loudspeakers in a room do — the
+//!   direction-preserving counterpart to the M/S-based wideners.
 //! - [`Crossover`](crossover::Crossover) — two-way LPF/HPF band split
 //!   at a configurable cutoff (output frame carries 2× input channels);
 //!   Butterworth-2 (12 dB/oct) or magnitude-flat Linkwitz-Riley-4
@@ -292,6 +298,7 @@ pub mod chorus;
 pub mod comb_filter;
 pub mod compressor;
 pub mod crest_factor_meter;
+pub mod crossfeed;
 pub mod crossover;
 pub mod dc_blocker;
 pub mod dc_offset_meter;
@@ -360,6 +367,7 @@ pub use chorus::Chorus;
 pub use comb_filter::{CombFilter, CombMode};
 pub use compressor::{Compressor, DetectorTopology};
 pub use crest_factor_meter::CrestFactorMeter;
+pub use crossfeed::Crossfeed;
 pub use crossover::{Crossover, CrossoverSlope};
 pub use dc_blocker::DcBlocker;
 pub use dc_offset_meter::DcOffsetMeter;

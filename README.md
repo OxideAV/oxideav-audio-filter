@@ -20,6 +20,7 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **limiter** — brickwall peak limiter with optional look-ahead (0..=2048 samples)
 - **dc_blocker** — single-pole IIR HPF (`y[n] = x[n] - x[n-1] + R·y[n-1]`) for DC-offset removal
 - **stereo_widener** — Mid/Side width control with `width ∈ [0, 2]` (0 = mono, 1 = bypass, 2 = wide)
+- **crossfeed** — headphone crossfeed: each channel bleeds into the other delayed by the interaural time difference (default 300 µs, fractional-sample exact via the in-crate `FracDelayLine`), attenuated (`level_db`, default −6 dB), and head-shadow low-passed (one-pole, default 700 Hz). Direct/cross gains satisfy `d + g/(1+g) · … = 1` so mono content passes at unity at low frequencies. Narrows hard-panned material the way loudspeakers in a room do — the direction-preserving counterpart to the M/S-based `stereo_widener`/`stereo_imager`. Stereo only; other channel counts pass through. Registry keys `level_db` / `cutoff_hz` / `delay_us`
 - **reverb** — Schroeder algorithmic reverb (4 parallel combs ║ 2 serial all-passes) with room_size / damping / wet / dry knobs
 - **tremolo** — sine-LFO amplitude modulation with rate / depth knobs
 - **loudness_itu** — ITU-R BS.1770-4 / EBU R128 integrated loudness meter (LUFS) with K-weighting + channel weights

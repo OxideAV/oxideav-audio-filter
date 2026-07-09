@@ -249,6 +249,7 @@ hostile!(pitch_shift, "pitch_shift", 1, |h| PitchShift::new(h));
 hostile!(stereo_widener, "stereo_widener", 2, |h| StereoWidener::new(
     h
 ));
+hostile!(crossfeed, "crossfeed", 2, |h| Crossfeed::with(h, h, h));
 hostile!(stereo_imager, "stereo_imager", 2, |h| StereoImager::with(
     h, h, h
 ));

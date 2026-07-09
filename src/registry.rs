@@ -66,6 +66,7 @@ pub fn register(ctx: &mut RuntimeContext) {
         .register("tape_saturation", Box::new(make_tape_saturation));
     ctx.filters
         .register("hum_filter", Box::new(make_hum_filter));
+    ctx.filters.register("crossfeed", Box::new(make_crossfeed));
     ctx.filters.register("crossover", Box::new(make_crossover));
     ctx.filters.register("mid_side", Box::new(make_mid_side));
     ctx.filters
@@ -665,6 +666,31 @@ fn make_dc_blocker(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Stream
 }
 
 /// `{"filter": "stereo_widener", "width": 1.5}` — M/S width control.
+fn make_crossfeed(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::Crossfeed;
+    let p = params.as_object();
+    let get_f64 = |k: &str, dflt: f64| {
+        p.and_then(|m| m.get(k))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(dflt)
+    };
+    let cf = Crossfeed::with(
+        get_f64("level_db", -6.0) as f32,
+        get_f64("cutoff_hz", 700.0) as f32,
+        get_f64("delay_us", 300.0) as f32,
+    );
+    let in_port = audio_in_port(inputs);
+    let out_port = PortSpec {
+        name: "audio".to_string(),
+        ..in_port.clone()
+    };
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(cf),
+        in_port,
+        out_port,
+    )))
+}
+
 fn make_stereo_widener(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
     use crate::StereoWidener;
     let p = params.as_object();

@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- round 401: **`crossfeed`** — headphone crossfeed filter (opposite-channel
+  bleed delayed by the interaural time difference, default 300 µs,
+  realised with the in-crate `FracDelayLine`; head-shadow one-pole
+  low-pass at 700 Hz; `level_db` default −6 dB with `direct + cross = 1`
+  level compensation so mono passes at unity). Registry entry
+  `"crossfeed"` with `level_db` / `cutoff_hz` / `delay_us` JSON keys.
+  Tests: ITD-delayed shadowed bleed of a hard-left impulse, mono
+  unity-level + symmetry, correlation increase on hard-panned material,
+  mono pass-through, chunk-size invariance, hostile-parameter edges.
+
+- round 401: **chunk-size invariance suite** (`tests/streaming_invariance.rs`)
+  — every filter processed in 1-/17-/480-sample frames must emit output
+  bit-identical to one-shot processing. Caught and fixed two real
+  frame-dependence bugs: `wah` refreshed its swept-BPF coefficients at
+  the start of every `process()` call (dead update counter) and
+  `talkbox` advanced its formant-morph LFO once per input *frame*, so
+  the morph rate depended on the caller's frame size. Both now run on a
+  sample-accurate control-rate grid carried across calls; both also
+  gained per-channel biquad state (`Biquad::process_channel_in_place`)
+  fixing stereo channel cross-contamination.
+
+- round 401: **hostile-parameter contract** (`tests/param_edges.rs`) —
+  every constructor fed NaN / ±inf / ±1e30 / 0 / −1 in every knob must
+  never panic, never allocate absurdly, and never emit non-finite
+  samples from finite input. Fixed a severe `pitch_shift` bug (NaN
+  semitones → non-terminating grain loop → unbounded memory growth),
+  a systemic NaN-through-`clamp` leak across ~30 constructors (new
+  `clamp_param` hygiene helper), central biquad coefficient scrubbing,
+  and allocation caps (`echo::MAX_DELAY_MS`, `chorus::MAX_BASE_DELAY_MS`,
+  `frac_delay::MAX_CAPACITY`, spectrogram `MAX_FFT_SIZE`/`MAX_RASTER_DIM`).
+
+- round 401: **denormal-decay contract** (`tests/denormal_decay.rs`) —
+  feedback/recursive filters must never emit f32-subnormal samples and
+  must terminate their tails at exact zero. All recursive state now
+  flushes to zero below 1e-25; state *pairs* (biquad `s1/s2`, SVF
+  integrators, phaser sections, RIAA `y1/y2`) flush **jointly** — an
+  independent per-component flush was shown to sustain a limit cycle
+  (~3e-23, never decaying) on a 50 Hz notch by breaking the pair's
+  near-cancellation. Regression pinned in `notch_50hz_no_limit_cycle`.
+
 - round 368: `compressor` **feedback detector topology**, grounded in the
   "Design" section of
   `docs/audio/filter/wikipedia-dynamic-range-compression.html`

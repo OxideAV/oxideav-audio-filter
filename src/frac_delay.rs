@@ -104,6 +104,7 @@ pub const MAX_CAPACITY: usize = 1 << 22;
 /// evaluates the signal at a fractional delay into the past. The ring
 /// length bounds the maximum delay (`capacity − 1 − kernel_reach`
 /// samples; see [`max_delay`](FracDelayLine::max_delay)).
+#[derive(Debug, Clone)]
 pub struct FracDelayLine {
     channels: usize,
     /// Per-channel ring buffers, each `capacity` long.

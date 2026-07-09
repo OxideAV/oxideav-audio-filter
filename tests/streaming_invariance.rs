@@ -374,6 +374,7 @@ invariant!(
 
 // --- stereo field -------------------------------------------------------
 invariant!(stereo_widener, "stereo_widener", 2, StereoWidener::new(1.5));
+invariant!(crossfeed, "crossfeed", 2, Crossfeed::new());
 invariant!(stereo_imager, "stereo_imager", 2, StereoImager::new());
 invariant!(mid_side_encode, "mid_side(encode)", 2, MidSide::encoder());
 
