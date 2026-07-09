@@ -1146,7 +1146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hooks), `de_esser` (split-band downward compressor: LPF/HPF
   Butterworth pair at the configurable split point + per-band peak
   detector + hard-knee compression curve on the high band only),
-  `wah` (Cry-Baby-style LFO-swept resonant band-pass with
+  `wah` (classic LFO-swept resonant band-pass with
   logarithmic centre interpolation between `f_min` and `f_max`),
   `octave_doubler` (Tycobrahe-Octavia-style full-wave-rectifier
   octave-up layer with one-pole DC block on the rectified path),
