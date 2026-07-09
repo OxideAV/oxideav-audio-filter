@@ -67,8 +67,8 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 
 use oxideav_audio_filter::{
     biquad::{Biquad, BiquadKind},
-    AudioFilter, AudioStreamParams, Compressor, Equalizer, LoudnessITU, Resample, Reverb,
-    TruePeakDetector,
+    AudioFilter, AudioStreamParams, Compressor, Crossfeed, Equalizer, LoudnessITU, Resample,
+    Reverb, TruePeakDetector,
 };
 use oxideav_core::{AudioFrame, SampleFormat};
 
@@ -334,6 +334,33 @@ fn bench_true_peak_4x(c: &mut Criterion) {
     g.finish();
 }
 
+fn bench_crossfeed(c: &mut Criterion) {
+    // Headphone crossfeed over 1 s of stereo F32 PCM @ 48 kHz. Per
+    // sample: one fractional-delay push + two linear-interpolated
+    // reads + two one-pole LP updates + the direct/cross mix — the
+    // FracDelayLine ring arithmetic dominates.
+    let fs = 48_000u32;
+    let n = fs as usize;
+    let pcm = build_f32_pcm(n, 2);
+    let frame = build_audio_frame_f32(&pcm);
+    let params = AudioStreamParams {
+        format: SampleFormat::F32,
+        channels: 2,
+        sample_rate: fs,
+    };
+
+    let mut g = c.benchmark_group("crossfeed");
+    g.throughput(Throughput::Bytes((n * 2 * 4) as u64));
+    g.bench_function(BenchmarkId::from_parameter("stereo/f32/48k/1s"), |b| {
+        b.iter(|| {
+            let mut cf = Crossfeed::new();
+            let out = cf.process(criterion::black_box(&frame), params).unwrap();
+            criterion::black_box(out);
+        });
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_biquad_lpf,
@@ -343,5 +370,6 @@ criterion_group!(
     bench_reverb,
     bench_resample_44k1_48k,
     bench_true_peak_4x,
+    bench_crossfeed,
 );
 criterion_main!(benches);
