@@ -509,4 +509,25 @@ pub trait AudioFilter: Send {
     fn flush(&mut self, _params: AudioStreamParams) -> Result<Vec<AudioFrame>> {
         Ok(Vec::new())
     }
+
+    /// Group delay of the direct signal path, in samples **at the input
+    /// sample rate**.
+    ///
+    /// This is the constant offset by which the output waveform lags
+    /// the input — what a host needs for latency compensation when
+    /// running this filter in parallel with an unprocessed path.
+    /// Filters with an inherently zero-latency direct path (per-sample
+    /// gain/waveshaping, IIR EQ whose phase delay is frequency-
+    /// dependent rather than a constant offset, delay *effects* whose
+    /// delay is the point) report `0` — the default.
+    ///
+    /// Non-zero reporters in this crate: look-ahead [`Limiter`]
+    /// (`look_ahead_samples`), [`MedianFilter`] (`window / 2`),
+    /// [`FreqShifter`] (Hilbert-FIR centre tap = `half_taps`), and
+    /// [`Resample`] (symmetric polyphase kernel's group delay, rounded
+    /// to the nearest input sample). Each is verified against the
+    /// measured impulse/step response in `tests/latency.rs`.
+    fn latency_samples(&self, _params: AudioStreamParams) -> usize {
+        0
+    }
 }

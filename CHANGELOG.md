@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and allocation caps (`echo::MAX_DELAY_MS`, `chorus::MAX_BASE_DELAY_MS`,
   `frac_delay::MAX_CAPACITY`, spectrogram `MAX_FFT_SIZE`/`MAX_RASTER_DIM`).
 
+- round 401: **latency reporting** — new `AudioFilter::latency_samples`
+  trait method (default `0`): the constant group delay of the direct
+  signal path in input-rate samples, for host delay compensation.
+  Non-zero reporters: look-ahead `Limiter` (`look_ahead_samples`),
+  `MedianFilter` (`window / 2`), `FreqShifter` (Hilbert centre tap =
+  `half_taps`), `Resample` (symmetric polyphase kernel group delay
+  `HALF_ZERO_CROSSINGS·max(up, down)/up`, rounded). Every declaration
+  is verified against the measured impulse/step response in
+  `tests/latency.rs` (resample within ±1 input sample across up-,
+  down-, and non-integer-ratio conversions).
+
 - round 401: **denormal-decay contract** (`tests/denormal_decay.rs`) —
   feedback/recursive filters must never emit f32-subnormal samples and
   must terminate their tails at exact zero. All recursive state now

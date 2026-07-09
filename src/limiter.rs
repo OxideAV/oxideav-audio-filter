@@ -193,6 +193,10 @@ impl Limiter {
 }
 
 impl AudioFilter for Limiter {
+    fn latency_samples(&self, _params: AudioStreamParams) -> usize {
+        self.look_ahead_samples
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

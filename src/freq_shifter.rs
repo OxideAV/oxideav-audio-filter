@@ -167,6 +167,13 @@ impl Default for FreqShifter {
 }
 
 impl AudioFilter for FreqShifter {
+    /// The Hilbert FIR has `2·half_taps + 1` taps; the in-phase path is
+    /// a pure delay to the centre tap, so the direct-path group delay
+    /// is exactly `half_taps` samples.
+    fn latency_samples(&self, _params: AudioStreamParams) -> usize {
+        self.half_taps
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

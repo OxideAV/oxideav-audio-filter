@@ -197,6 +197,13 @@ fn median_of(scratch: &mut [f32], w: usize) -> f32 {
 }
 
 impl AudioFilter for MedianFilter {
+    /// A length-`N` median sits at the centre of its window: a step
+    /// edge crosses the output once `N/2 + 1` window slots have seen
+    /// it, i.e. `N/2` samples after the input edge.
+    fn latency_samples(&self, _params: AudioStreamParams) -> usize {
+        self.window / 2
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

@@ -365,6 +365,17 @@ impl Resample {
 }
 
 impl AudioFilter for Resample {
+    /// The symmetric windowed-sinc prototype has
+    /// `2·HALF_ZERO_CROSSINGS·max(up, down) + 1` taps at the
+    /// L-rate (`fs·up`), so its group delay is
+    /// `HALF_ZERO_CROSSINGS·max(up, down)` L-rate samples =
+    /// `HALF_ZERO_CROSSINGS·max(up, down) / up` input samples,
+    /// reported rounded to the nearest input sample.
+    fn latency_samples(&self, _params: AudioStreamParams) -> usize {
+        let l_rate_delay = HALF_ZERO_CROSSINGS as f64 * self.up.max(self.down) as f64;
+        (l_rate_delay / self.up as f64).round() as usize
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,
