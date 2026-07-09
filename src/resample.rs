@@ -861,4 +861,77 @@ mod tests {
             level
         );
     }
+
+    /// End-to-end spectral-purity contract: a pure tone in is a pure
+    /// tone out — same frequency in Hz, same amplitude, and nothing
+    /// else. The residual after subtracting the best least-squares
+    /// quadrature fit `a·sin(ωt) + b·cos(ωt)` at the target frequency
+    /// captures everything that is NOT that tone (aliasing images,
+    /// interpolation distortion, phase jitter across polyphase
+    /// branches) in one number.
+    ///
+    /// The LS fit is evaluated at the exact target frequency, so —
+    /// unlike a DFT bin — it has no spectral-leakage penalty for a
+    /// non-integer number of cycles per window.
+    #[test]
+    fn pure_tone_survives_conversion_spectrally_clean() {
+        for &(src, dst) in &[
+            (48_000u32, 44_100u32), // non-trivial rational (147/160)
+            (48_000, 96_000),       // integer up
+            (44_100, 48_000),       // non-trivial up
+            (48_000, 32_000),       // rational down
+        ] {
+            let freq = 1_000.0f32;
+            let n_in = src as usize; // 1 s
+            let mut rs = Resample::new(src, dst).unwrap();
+            let mut out: Vec<f32> = Vec::new();
+            let produced = rs
+                .process(&sine_f32(freq, src, n_in), f32_mono(src))
+                .unwrap();
+            for fr in &produced {
+                for c in fr.data[0].chunks_exact(4) {
+                    out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                }
+            }
+            // Skip both edges: kernel warm-up at the head, un-flushed
+            // ramp at the tail.
+            let skip = (dst as usize) / 10;
+            let y = &out[skip..out.len() - skip];
+            let w = 2.0 * std::f64::consts::PI * freq as f64 / dst as f64;
+
+            // Least-squares quadrature fit at the mapped frequency.
+            let (mut ss, mut sc, mut scc, mut sss, mut ssc) = (0.0f64, 0.0, 0.0, 0.0, 0.0);
+            for (i, &v) in y.iter().enumerate() {
+                let (s, c) = ((i as f64 * w).sin(), (i as f64 * w).cos());
+                ss += v as f64 * s;
+                sc += v as f64 * c;
+                sss += s * s;
+                scc += c * c;
+                ssc += s * c;
+            }
+            // Solve the 2×2 normal equations.
+            let det = sss * scc - ssc * ssc;
+            let a = (ss * scc - sc * ssc) / det;
+            let b = (sc * sss - ss * ssc) / det;
+            let amplitude = (a * a + b * b).sqrt();
+
+            let mut resid_sq = 0.0f64;
+            let mut tot_sq = 0.0f64;
+            for (i, &v) in y.iter().enumerate() {
+                let fit = a * (i as f64 * w).sin() + b * (i as f64 * w).cos();
+                resid_sq += (v as f64 - fit).powi(2);
+                tot_sq += (v as f64).powi(2);
+            }
+            let purity_db = 10.0 * (resid_sq / tot_sq).max(1.0e-30).log10();
+
+            assert!(
+                (amplitude - 1.0).abs() < 0.005,
+                "{src}->{dst}: tone amplitude {amplitude:.5} drifted from 1.0"
+            );
+            assert!(
+                purity_db < -55.0,
+                "{src}->{dst}: non-tone residual only {purity_db:.1} dB down"
+            );
+        }
+    }
 }

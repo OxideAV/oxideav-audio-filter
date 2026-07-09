@@ -40,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and allocation caps (`echo::MAX_DELAY_MS`, `chorus::MAX_BASE_DELAY_MS`,
   `frac_delay::MAX_CAPACITY`, spectrogram `MAX_FFT_SIZE`/`MAX_RASTER_DIM`).
 
+- round 401: **closed-form response contracts** — the SVF's measured
+  sine gain is pinned to the exact discrete transfer function derived
+  from the Chamberlin recurrence itself (`D(z) = (1−z⁻¹)² +
+  q·f·z⁻¹·(1−z⁻¹) + f²·z⁻¹`, all four output taps, 4 modes × 3 cutoffs
+  × 3 Qs × 5 probe frequencies, within 2%); the resampler gains an
+  end-to-end spectral-purity contract (a pure tone converts to a pure
+  tone at the same Hz: least-squares quadrature fit at the target
+  frequency, amplitude within 0.5%, non-tone residual < −55 dB across
+  48k→44.1k / 48k→96k / 44.1k→48k / 48k→32k).
+
 - round 401: **latency reporting** — new `AudioFilter::latency_samples`
   trait method (default `0`): the constant group delay of the direct
   signal path in input-rate samples, for host delay compensation.

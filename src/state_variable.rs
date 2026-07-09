@@ -646,4 +646,118 @@ mod tests {
             ratio
         );
     }
+
+    /// Exact discrete transfer function of the Chamberlin recurrence,
+    /// derived from the update equations themselves (not from the
+    /// analog prototype it approximates):
+    ///
+    /// ```text
+    /// hp[n] = x[n] − q·bp[n−1] − lp[n−1]
+    /// bp[n] = bp[n−1] + f·hp[n]
+    /// lp[n] = lp[n−1] + f·bp[n]
+    /// ```
+    ///
+    /// Taking z-transforms and eliminating BP and LP:
+    ///
+    /// ```text
+    /// BP = f·HP / (1 − z⁻¹)          LP = f²·HP / (1 − z⁻¹)²
+    /// D(z) = (1 − z⁻¹)² + q·f·z⁻¹·(1 − z⁻¹) + f²·z⁻¹
+    /// H_hp = (1 − z⁻¹)²/D    H_bp = f·(1 − z⁻¹)/D
+    /// H_lp = f²/D            H_notch = ((1 − z⁻¹)² + f²)/D
+    /// ```
+    ///
+    /// with `f = 2·sin(π·fc/fs)` and `q = 1/Q`. Returns `|H(e^{jω})|`
+    /// for the given mode at probe frequency `freq`.
+    fn analytic_gain(mode: SvfMode, fc: f32, big_q: f32, freq: f32, fs: u32) -> f64 {
+        let f = 2.0 * (std::f64::consts::PI * fc as f64 / fs as f64).sin();
+        let q = 1.0 / big_q as f64;
+        let w = 2.0 * std::f64::consts::PI * freq as f64 / fs as f64;
+        // Complex helpers on (re, im) tuples.
+        let add = |a: (f64, f64), b: (f64, f64)| (a.0 + b.0, a.1 + b.1);
+        let mul = |a: (f64, f64), b: (f64, f64)| (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0);
+        let scale = |s: f64, a: (f64, f64)| (s * a.0, s * a.1);
+        let norm = |a: (f64, f64)| (a.0 * a.0 + a.1 * a.1).sqrt();
+
+        let z_inv = (w.cos(), -w.sin());
+        let one_minus = add((1.0, 0.0), scale(-1.0, z_inv));
+        let om2 = mul(one_minus, one_minus);
+        // D = (1 − z⁻¹)² + q·f·z⁻¹·(1 − z⁻¹) + f²·z⁻¹
+        let d = add(
+            add(om2, scale(q * f, mul(z_inv, one_minus))),
+            scale(f * f, z_inv),
+        );
+        let num = match mode {
+            SvfMode::HighPass => om2,
+            SvfMode::BandPass => scale(f, one_minus),
+            SvfMode::LowPass => (f * f, 0.0),
+            SvfMode::Notch => add(om2, (f * f, 0.0)),
+        };
+        norm(num) / norm(d)
+    }
+
+    /// Measured steady-state sine gain must match the analytic
+    /// `|H(e^{jω})|` of the recurrence for every output tap across a
+    /// grid of cutoffs, Qs, and probe frequencies. Probe frequencies
+    /// are snapped to an integer number of cycles per analysis window
+    /// so the RMS measurement has no spectral leakage.
+    #[test]
+    fn measured_response_matches_analytic_transfer_function() {
+        let fs = 48_000u32;
+        let n = 32_768usize;
+        for &mode in &[
+            SvfMode::LowPass,
+            SvfMode::BandPass,
+            SvfMode::HighPass,
+            SvfMode::Notch,
+        ] {
+            for &fc in &[500.0f32, 1_000.0, 4_000.0] {
+                for &big_q in &[std::f32::consts::FRAC_1_SQRT_2, 2.0, 8.0] {
+                    for &ratio in &[0.25f32, 0.5, 1.0, 2.0, 4.0] {
+                        let target = fc * ratio;
+                        if target >= fs as f32 * 0.45 {
+                            continue;
+                        }
+                        // Snap to an integer cycle count per window.
+                        let cycles = (target * n as f32 / fs as f32).round().max(1.0);
+                        let freq = cycles * fs as f32 / n as f32;
+
+                        let expect = analytic_gain(mode, fc, big_q, freq, fs);
+                        let mut flt = SvfFilter::new(mode, fc, big_q);
+                        // Two windows: settle on the first, measure the second.
+                        let g = {
+                            let w = 2.0 * std::f32::consts::PI * freq / fs as f32;
+                            let tone: Vec<f32> =
+                                (0..2 * n).map(|i| 0.5 * (i as f32 * w).sin()).collect();
+                            let out = flt.process(&make_f32_mono(&tone), f32_mono(fs)).unwrap();
+                            let y = read_f32(&out[0]);
+                            let rms = |x: &[f32]| -> f64 {
+                                (x.iter().map(|&v| (v as f64).powi(2)).sum::<f64>()
+                                    / x.len() as f64)
+                                    .sqrt()
+                            };
+                            rms(&y[n..]) / rms(&tone[n..])
+                        };
+
+                        // Deep nulls: compare absolutely (relative error
+                        // explodes as |H| → 0).
+                        if expect < 0.01 {
+                            assert!(
+                                g < 0.02,
+                                "{mode:?} fc={fc} Q={big_q} probe={freq:.1}: \
+                                 expected null ({expect:.2e}), measured {g:.2e}"
+                            );
+                        } else {
+                            let rel = (g - expect).abs() / expect;
+                            assert!(
+                                rel < 0.02,
+                                "{mode:?} fc={fc} Q={big_q} probe={freq:.1}: \
+                                 measured {g:.5} vs analytic {expect:.5} ({:.2}% off)",
+                                rel * 100.0
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
