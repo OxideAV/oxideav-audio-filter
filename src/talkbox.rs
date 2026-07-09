@@ -95,11 +95,20 @@ pub struct Talkbox {
     mix: f32,
     /// LFO phase, in radians, accumulated across calls. Kept modulo 2π.
     phase: f32,
-    /// One band-pass per formant. Updated each block with the current
-    /// morph frequency.
+    /// Samples remaining until the next formant-coefficient refresh.
+    /// Carried across `process()` calls so the control-rate grid is a
+    /// property of the sample stream, not of the caller's frame sizes.
+    counter: u32,
+    /// One band-pass per formant. Updated each control-rate period with
+    /// the current morph frequency.
     bpf_a: Biquad,
     bpf_b: Biquad,
 }
+
+/// Samples between formant-coefficient refreshes (≈ 1.3 ms at 48 kHz —
+/// far faster than any audible vowel morph, far cheaper than per-sample
+/// coefficient re-derivation).
+const UPDATE_PERIOD: u32 = 64;
 
 impl Talkbox {
     /// Default talkbox: morph Ah → Ee at 0.5 Hz, Q=8, full wet.
@@ -122,6 +131,7 @@ impl Talkbox {
             q,
             mix,
             phase: 0.0,
+            counter: 0,
             bpf_a,
             bpf_b,
         }
@@ -143,6 +153,7 @@ impl Talkbox {
     /// Reset the LFO phase and biquad states.
     pub fn reset(&mut self) {
         self.phase = 0.0;
+        self.counter = 0;
         self.bpf_a.reset();
         self.bpf_b.reset();
     }
@@ -175,49 +186,65 @@ impl AudioFilter for Talkbox {
         }
         let n_samples = dry[0].len();
 
-        // Compute the per-block LFO position (block-rate is plenty for
-        // formant morphing; a per-sample sweep would require
-        // re-deriving the biquad coefficients every sample, which the
-        // present `Biquad` API supports but is wasteful here).
+        // Control-rate LFO: refresh the formant coefficients every
+        // `UPDATE_PERIOD` samples (block-rate is plenty for formant
+        // morphing; a per-sample sweep would require re-deriving the
+        // biquad coefficients every sample, which the present `Biquad`
+        // API supports but is wasteful here). `self.counter` carries
+        // the samples remaining until the next refresh across calls,
+        // so output is bit-identical however the caller slices the
+        // stream into frames (chunk-size invariance).
         let omega = 2.0 * std::f32::consts::PI * self.rate_hz / params.sample_rate as f32;
-        let lfo = 0.5 * (1.0 + self.phase.sin());
-        self.phase = (self.phase + omega * n_samples as f32) % (2.0 * std::f32::consts::PI);
-
         let (f1_a, f2_a) = self.from.formants();
         let (f1_b, f2_b) = self.to.formants();
-        let f1 = lerp_log(f1_a, f1_b, lfo);
-        let f2 = lerp_log(f2_a, f2_b, lfo);
-        self.bpf_a.set_kind(BiquadKind::BandPass {
-            center_hz: f1,
-            q: self.q,
-        });
-        self.bpf_b.set_kind(BiquadKind::BandPass {
-            center_hz: f2,
-            q: self.q,
-        });
 
-        // Process each channel through both formant BPFs in parallel.
-        // The BPFs are independent (separate state tables per filter
-        // already, indexed by channel-position in the buffer).
         let mut out_channels = vec![vec![0.0f32; n_samples]; n_chan];
-        // Run channel-by-channel so we can write the result back. The
-        // biquad's per-channel state grows lazily on the first
-        // `process_in_place` call.
-        for (ch, _) in dry.iter().enumerate() {
-            let mut buf_a: Vec<f32> = dry[ch].clone();
-            let mut buf_b: Vec<f32> = dry[ch].clone();
-            self.bpf_a
-                .process_in_place(&mut buf_a, 1, params.sample_rate);
-            self.bpf_b
-                .process_in_place(&mut buf_b, 1, params.sample_rate);
-            // Note: a fresh BPF state per channel would cleanly
-            // separate them, but since we run channel-major and reset
-            // is not needed between channels (BPF state grows only
-            // every block) we simply sum the two formant outputs.
-            for i in 0..n_samples {
-                let wet = buf_a[i] + buf_b[i];
-                out_channels[ch][i] = (1.0 - self.mix) * dry[ch][i] + self.mix * wet;
+        let mut pos = 0usize;
+        while pos < n_samples {
+            if self.counter == 0 {
+                let lfo = 0.5 * (1.0 + self.phase.sin());
+                let f1 = lerp_log(f1_a, f1_b, lfo);
+                let f2 = lerp_log(f2_a, f2_b, lfo);
+                self.bpf_a.set_kind(BiquadKind::BandPass {
+                    center_hz: f1,
+                    q: self.q,
+                });
+                self.bpf_b.set_kind(BiquadKind::BandPass {
+                    center_hz: f2,
+                    q: self.q,
+                });
+                // The phase is only ever READ here, and refreshes land
+                // on an absolute-sample grid (multiples of
+                // `UPDATE_PERIOD`) that frame slicing cannot move — so
+                // advance it by exactly one period per refresh. Any
+                // per-segment accumulation would round differently for
+                // different frame sizes and break bit-exact chunk-size
+                // invariance.
+                self.phase =
+                    (self.phase + omega * UPDATE_PERIOD as f32) % (2.0 * std::f32::consts::PI);
+                self.counter = UPDATE_PERIOD;
             }
+            let seg_end = (pos + self.counter as usize).min(n_samples);
+
+            // Process each channel's segment through both formant BPFs
+            // in parallel. Per-channel state slots keep the channels
+            // independent — repeated single-channel `process_in_place`
+            // would leak channel 0's delay-line history into channel 1.
+            for (ch, dry_ch) in dry.iter().enumerate() {
+                let mut buf_a: Vec<f32> = dry_ch[pos..seg_end].to_vec();
+                let mut buf_b: Vec<f32> = dry_ch[pos..seg_end].to_vec();
+                self.bpf_a
+                    .process_channel_in_place(&mut buf_a, ch, n_chan, params.sample_rate);
+                self.bpf_b
+                    .process_channel_in_place(&mut buf_b, ch, n_chan, params.sample_rate);
+                for i in 0..seg_end - pos {
+                    let wet = buf_a[i] + buf_b[i];
+                    out_channels[ch][pos + i] = (1.0 - self.mix) * dry_ch[pos + i] + self.mix * wet;
+                }
+            }
+
+            self.counter -= (seg_end - pos) as u32;
+            pos = seg_end;
         }
         let out = encode_from_f32(params.format, params.channels, input, &out_channels)?;
         Ok(vec![out])
@@ -347,6 +374,49 @@ mod tests {
             delta_db < -10.0,
             "off-formant noise not attenuated: {} dB",
             delta_db
+        );
+    }
+
+    #[test]
+    fn stereo_channels_are_independent() {
+        // Channel 0 carries a tone, channel 1 is silent. Per-channel
+        // biquad state slots must keep the silent channel silent — a
+        // shared slot would ring channel 0's history into channel 1.
+        let fs = 48_000u32;
+        let n = 4_096usize;
+        let w = 2.0 * std::f32::consts::PI * 440.0 / fs as f32;
+        let mut bytes = Vec::with_capacity(n * 2 * 4);
+        for i in 0..n {
+            bytes.extend_from_slice(&(0.5 * (i as f32 * w).sin()).to_le_bytes()); // L
+            bytes.extend_from_slice(&0.0f32.to_le_bytes()); // R silent
+        }
+        let frame = AudioFrame {
+            samples: n as u32,
+            pts: None,
+            data: vec![bytes],
+        };
+        let mut tb = Talkbox::new();
+        let out = tb
+            .process(
+                &frame,
+                AudioStreamParams {
+                    format: SampleFormat::F32,
+                    channels: 2,
+                    sample_rate: fs,
+                },
+            )
+            .unwrap();
+        let got = read_f32(&out[0]);
+        let mut right_peak = 0.0f32;
+        let mut left_peak = 0.0f32;
+        for pair in got.chunks_exact(2) {
+            left_peak = left_peak.max(pair[0].abs());
+            right_peak = right_peak.max(pair[1].abs());
+        }
+        assert!(left_peak > 0.01, "left channel unexpectedly quiet");
+        assert!(
+            right_peak < 1.0e-6,
+            "silent right channel leaked energy: peak={right_peak}"
         );
     }
 

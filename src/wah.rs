@@ -147,34 +147,54 @@ impl AudioFilter for Wah {
         // Process sample-by-sample but only refresh coefficients every
         // `update_period` samples.
         // Strategy: collect dry copy of channels first, then run biquad
-        // segment-by-segment (one segment per update_period). Each
-        // segment uses a single coefficient set.
+        // segment-by-segment (one segment per coefficient set).
+        // `self.counter` carries the samples remaining until the next
+        // refresh ACROSS process() calls, so the refresh grid is a
+        // property of the sample stream, not of how the caller sliced
+        // it into frames (chunk-size invariance: 1-sample frames and
+        // one big frame produce bit-identical output).
         let dry: Vec<Vec<f32>> = channels.to_vec();
+        let n_chan = channels.len();
+        let two_pi = 2.0 * std::f32::consts::PI;
         let mut pos = 0usize;
         while pos < n {
-            // Refresh the biquad cutoff for this segment.
-            let lfo = 0.5 * (self.phase.sin() + 1.0);
-            let f_c = self.f_min * (lfo * log_ratio).exp();
-            self.bpf.set_kind(BiquadKind::BandPass {
-                center_hz: f_c,
-                q: self.q,
-            });
-
-            let seg_end = (pos + self.update_period as usize).min(n);
-            for ch in channels.iter_mut() {
-                let slice = &mut ch[pos..seg_end];
-                self.bpf.process_in_place(slice, 1, params.sample_rate);
+            if self.counter == 0 {
+                // Refresh the biquad cutoff for the next period.
+                let lfo = 0.5 * (self.phase.sin() + 1.0);
+                let f_c = self.f_min * (lfo * log_ratio).exp();
+                self.bpf.set_kind(BiquadKind::BandPass {
+                    center_hz: f_c,
+                    q: self.q,
+                });
+                // The phase is only ever READ here, and refreshes land
+                // on an absolute-sample grid (multiples of
+                // `update_period`) that frame slicing cannot move — so
+                // advance it by exactly one period per refresh. Any
+                // per-segment accumulation would round differently for
+                // different frame sizes and break bit-exact chunk-size
+                // invariance.
+                self.phase += dphase * self.update_period as f32;
+                if self.phase >= two_pi {
+                    self.phase -= two_pi * (self.phase / two_pi).floor();
+                }
+                self.counter = self.update_period;
             }
 
-            // Advance LFO phase by the segment length.
-            self.phase += dphase * (seg_end - pos) as f32;
-            // Keep phase in `[0, 2π)` to avoid drift.
-            let two_pi = 2.0 * std::f32::consts::PI;
-            if self.phase >= two_pi {
-                self.phase -= two_pi * (self.phase / two_pi).floor();
+            let seg_end = (pos + self.counter as usize).min(n);
+            for (ch_idx, ch) in channels.iter_mut().enumerate() {
+                // Per-channel state slots: repeated single-channel
+                // process_in_place would leak channel 0's delay-line
+                // history into channel 1.
+                self.bpf.process_channel_in_place(
+                    &mut ch[pos..seg_end],
+                    ch_idx,
+                    n_chan,
+                    params.sample_rate,
+                );
             }
+
+            self.counter -= (seg_end - pos) as u32;
             pos = seg_end;
-            self.counter = self.counter.wrapping_add((seg_end - pos) as u32);
         }
 
         // Apply dry/wet mix.
@@ -308,6 +328,53 @@ mod tests {
         assert!(w.q() <= 20.0, "Q not clamped: {}", w.q());
         assert!(w.mix() <= 1.0 && w.mix() >= 0.0, "mix out of range");
         assert!(w.rate_hz() > 0.0, "rate must be positive");
+    }
+
+    #[test]
+    fn stereo_channels_are_independent() {
+        // Channel 0 carries a tone, channel 1 is silent. With correct
+        // per-channel biquad state slots, channel 1 must stay silent —
+        // a shared state slot would ring channel 0's history into it.
+        let fs = 48_000u32;
+        let n = 4_096usize;
+        let mut interleaved = Vec::with_capacity(n * 2);
+        for i in 0..n {
+            let w = 2.0 * std::f32::consts::PI * 660.0 / fs as f32;
+            interleaved.push(0.5 * (i as f32 * w).sin()); // L
+            interleaved.push(0.0); // R silent
+        }
+        let mut bytes = Vec::with_capacity(interleaved.len() * 4);
+        for s in &interleaved {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let frame = AudioFrame {
+            samples: n as u32,
+            pts: None,
+            data: vec![bytes],
+        };
+        let mut w = Wah::new();
+        let out = w
+            .process(
+                &frame,
+                AudioStreamParams {
+                    format: SampleFormat::F32,
+                    channels: 2,
+                    sample_rate: fs,
+                },
+            )
+            .unwrap();
+        let got = read_f32(&out[0]);
+        let mut right_peak = 0.0f32;
+        let mut left_peak = 0.0f32;
+        for pair in got.chunks_exact(2) {
+            left_peak = left_peak.max(pair[0].abs());
+            right_peak = right_peak.max(pair[1].abs());
+        }
+        assert!(left_peak > 0.05, "left channel unexpectedly quiet");
+        assert!(
+            right_peak < 1.0e-6,
+            "silent right channel leaked energy: peak={right_peak}"
+        );
     }
 
     #[test]

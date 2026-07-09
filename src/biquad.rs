@@ -615,6 +615,40 @@ impl Biquad {
             }
         }
     }
+
+    /// Apply the recurrence in-place to ONE channel's contiguous
+    /// (planar) buffer, using the per-channel state slot `channel` out
+    /// of `total_channels` slots.
+    ///
+    /// Callers that decode to planar per-channel buffers and drive the
+    /// same `Biquad` over each channel in turn (swept-filter effects
+    /// that share one coefficient set across channels) must use this
+    /// instead of repeated `process_in_place(.., 1, ..)` calls — the
+    /// latter reuses state slot 0 for every channel, so channel k's
+    /// delay-line history leaks into channel k+1.
+    pub fn process_channel_in_place(
+        &mut self,
+        samples: &mut [f32],
+        channel: usize,
+        total_channels: usize,
+        sample_rate_hz: u32,
+    ) {
+        if total_channels == 0 || channel >= total_channels || samples.is_empty() {
+            return;
+        }
+        self.ensure_coeffs(sample_rate_hz);
+        self.ensure_states(total_channels);
+
+        let c = self.coeffs.expect("ensure_coeffs ran above");
+        let st = &mut self.states[channel];
+        for s in samples.iter_mut() {
+            let x = *s as f64;
+            let y = c.b0 * x + st.s1;
+            st.s1 = c.b1 * x - c.a1 * y + st.s2;
+            st.s2 = c.b2 * x - c.a2 * y;
+            *s = y as f32;
+        }
+    }
 }
 
 impl AudioFilter for Biquad {
