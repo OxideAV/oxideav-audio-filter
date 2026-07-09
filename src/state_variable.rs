@@ -262,6 +262,17 @@ impl AudioFilter for SvfFilter {
                 let hp = x - q * bp - lp;
                 bp += f * hp;
                 lp += f * bp;
+                // JOINT flush-to-zero on the integrator pair: an
+                // impulse tail otherwise dwells in the f32 subnormal
+                // range for seconds. Both components must flush
+                // atomically — truncating one while the other is live
+                // can sustain a limit cycle in the two-integrator loop
+                // (same failure mode as the biquad state pair; see
+                // biquad::State::flush_denormals).
+                if bp.abs() < 1.0e-25 && lp.abs() < 1.0e-25 {
+                    bp = 0.0;
+                    lp = 0.0;
+                }
                 *s = match self.mode {
                     SvfMode::LowPass => lp,
                     SvfMode::BandPass => bp,

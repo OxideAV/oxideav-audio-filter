@@ -110,7 +110,10 @@ impl AudioFilter for DcBlocker {
                 let x = *s;
                 let y = x - st.x_prev + self.pole * st.y_prev;
                 st.x_prev = x;
-                st.y_prev = y;
+                // Flush-to-zero: the pole recursion otherwise dwells
+                // in the subnormal range for seconds after the input
+                // goes silent (see crate::ftz).
+                st.y_prev = crate::ftz(y);
                 *s = y;
             }
         }

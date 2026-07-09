@@ -430,6 +430,28 @@ struct State {
     s2: f64,
 }
 
+impl State {
+    /// JOINT flush-to-zero on the `(s1, s2)` pair: zero both only when
+    /// BOTH are below the audibility floor (1e-25 ≈ −500 dBFS).
+    ///
+    /// The pair must be flushed atomically. Flushing one component
+    /// while its partner is still live breaks the near-cancellation
+    /// between `s1` and `s2` that low-cutoff, high-pole-radius
+    /// configurations rely on; the repeated asymmetric truncation then
+    /// SUSTAINS a limit cycle a few decades above the threshold
+    /// instead of decaying (observed: a 50 Hz Q=10 notch stuck ringing
+    /// at ~3e-23 indefinitely). Zeroing both at once perturbs the next
+    /// output by < 3e-25 exactly once, after which silent input keeps
+    /// the state at exact zero — no subnormal dwell, no limit cycle.
+    #[inline]
+    fn flush_denormals(&mut self) {
+        if self.s1.abs() < 1.0e-25 && self.s2.abs() < 1.0e-25 {
+            self.s1 = 0.0;
+            self.s2 = 0.0;
+        }
+    }
+}
+
 /// Streaming biquad. Holds the configuration, the most-recent compiled
 /// coefficients, and one `(s1, s2)` state pair per channel.
 #[derive(Debug, Clone)]
@@ -634,6 +656,7 @@ impl Biquad {
                 let y = c.b0 * x + st.s1;
                 st.s1 = c.b1 * x - c.a1 * y + st.s2;
                 st.s2 = c.b2 * x - c.a2 * y;
+                st.flush_denormals();
                 samples[i] = y as f32;
             }
         }
@@ -669,6 +692,7 @@ impl Biquad {
             let y = c.b0 * x + st.s1;
             st.s1 = c.b1 * x - c.a1 * y + st.s2;
             st.s2 = c.b2 * x - c.a2 * y;
+            st.flush_denormals();
             *s = y as f32;
         }
     }
@@ -692,6 +716,7 @@ impl AudioFilter for Biquad {
                 let y = c.b0 * x + st.s1;
                 st.s1 = c.b1 * x - c.a1 * y + st.s2;
                 st.s2 = c.b2 * x - c.a2 * y;
+                st.flush_denormals();
                 *s = y as f32;
             }
         }

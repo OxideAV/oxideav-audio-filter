@@ -101,7 +101,9 @@ impl AudioFilter for Echo {
                 let dry = *sample;
                 let delayed = line[idx];
                 let out = dry * dry_mix + delayed * self.mix;
-                line[idx] = dry + delayed * self.feedback;
+                // Feedback write is flushed-to-zero so a decaying
+                // echo tail terminates instead of dwelling subnormal.
+                line[idx] = crate::ftz(dry + delayed * self.feedback);
                 *sample = out;
                 idx += 1;
                 if idx >= line_len {

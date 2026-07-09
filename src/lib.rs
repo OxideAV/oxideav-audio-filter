@@ -447,6 +447,39 @@ pub(crate) fn clamp_param(v: f32, nan_fallback: f32, lo: f32, hi: f32) -> f32 {
     v.clamp(lo, hi)
 }
 
+/// Flush-to-zero for recursive (feedback) filter state.
+///
+/// An impulse tail decaying through a feedback loop glides into the
+/// f32 subnormal range (|x| < 2^-126) and dwells there for seconds
+/// before underflowing to true zero; on hardware without fast
+/// subnormal arithmetic every one of those samples costs a micro-trap.
+/// Snapping state to exact zero once it falls below 1e-25 (~250 dB
+/// under full scale -- far beneath audibility, far above the subnormal
+/// range) terminates the tail cleanly. Apply to every value that is
+/// written back into recursive state (delay-line feedback writes,
+/// one-pole/biquad state variables), never to the dry signal path.
+#[inline]
+pub(crate) fn ftz(v: f32) -> f32 {
+    if v.abs() < 1.0e-25 {
+        0.0
+    } else {
+        v
+    }
+}
+
+/// `f64` twin of [`ftz`] for filters that keep f64 state (biquad,
+/// emphasis curves). The threshold is the same: f64 state below 1e-25
+/// casts to a normal-or-zero f32 either way, but letting it decay
+/// toward 1e-308 keeps the recursion busy with meaningless arithmetic.
+#[inline]
+pub(crate) fn ftz64(v: f64) -> f64 {
+    if v.abs() < 1.0e-25 {
+        0.0
+    } else {
+        v
+    }
+}
+
 /// Streaming audio filter.
 ///
 /// Implementors process one input frame at a time and may emit zero or more

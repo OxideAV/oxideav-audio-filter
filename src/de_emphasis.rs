@@ -312,7 +312,9 @@ impl AudioFilter for DeEmphasis {
                     let x = *s as f64;
                     let y = c.b0 * x + c.b1 * st.x1 - c.a1 * st.y1;
                     st.x1 = x;
-                    st.y1 = y;
+                    // Flush-to-zero: the pole recursion otherwise
+                    // dwells subnormal after silence (crate::ftz64).
+                    st.y1 = crate::ftz64(y);
                     *s = y as f32;
                 }
             }
@@ -326,6 +328,14 @@ impl AudioFilter for DeEmphasis {
                     st.x1 = x;
                     st.y2 = st.y1;
                     st.y1 = y;
+                    // JOINT flush-to-zero: the (y1, y2) pole pair must
+                    // flush atomically or the asymmetric truncation
+                    // can sustain a limit cycle (see
+                    // biquad::State::flush_denormals).
+                    if st.y1.abs() < 1.0e-25 && st.y2.abs() < 1.0e-25 {
+                        st.y1 = 0.0;
+                        st.y2 = 0.0;
+                    }
                     *s = y as f32;
                 }
             }

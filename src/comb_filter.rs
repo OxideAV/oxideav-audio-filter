@@ -406,11 +406,12 @@ impl AudioFilter for CombFilter {
                         // attenuates HF overtones faster than the
                         // fundamental — the natural plucked-string
                         // decay shape.
-                        state.lp_state = (1.0 - damping) * delayed + damping * state.lp_state;
+                        state.lp_state =
+                            crate::ftz((1.0 - damping) * delayed + damping * state.lp_state);
                         let y = x + gain * state.lp_state;
                         // Feedback stores the *output* sample —
                         // y[n] = x[n] + g·damped(y[n−D]).
-                        state.ring[state.write_idx] = y;
+                        state.ring[state.write_idx] = crate::ftz(y);
                         state.write_idx += 1;
                         if state.write_idx >= d {
                             state.write_idx = 0;

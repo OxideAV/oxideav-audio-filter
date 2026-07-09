@@ -114,7 +114,9 @@ impl AudioFilter for Flanger {
                 let i0 = rd_int.rem_euclid(line_len as i64) as usize;
                 let i1 = (i0 + 1) % line_len;
                 let tap = line[i0] * (1.0 - frac) + line[i1] * frac;
-                line[widx] = dry + self.feedback * tap;
+                // Feedback write is flushed-to-zero so the resonant
+                // tail terminates instead of dwelling subnormal.
+                line[widx] = crate::ftz(dry + self.feedback * tap);
                 widx = (widx + 1) % line_len;
                 let out = dry * (1.0 - self.mix) + tap * self.mix;
                 *sample = out;

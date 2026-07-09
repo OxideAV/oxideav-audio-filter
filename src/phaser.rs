@@ -142,10 +142,20 @@ impl AudioFilter for Phaser {
                     let y = a * x + sec.0 - a * sec.1;
                     sec.0 = x;
                     sec.1 = y;
+                    // JOINT flush-to-zero on the all-pass state pair:
+                    // the feedback tail otherwise dwells subnormal.
+                    // Both components flush atomically — truncating
+                    // one while the other is live can sustain a limit
+                    // cycle (same failure mode as the biquad pair; see
+                    // biquad::State::flush_denormals).
+                    if sec.0.abs() < 1.0e-25 && sec.1.abs() < 1.0e-25 {
+                        sec.0 = 0.0;
+                        sec.1 = 0.0;
+                    }
                     x = y;
                 }
                 let wet = x;
-                last_wet = wet;
+                last_wet = crate::ftz(wet);
                 *sample = dry * (1.0 - self.mix) + wet * self.mix;
                 local_phase += dphase;
                 if local_phase >= 2.0 * std::f64::consts::PI {

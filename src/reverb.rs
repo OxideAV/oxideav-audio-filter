@@ -95,8 +95,10 @@ impl Comb {
     fn step(&mut self, x: f32, feedback: f32, damping: f32) -> f32 {
         let out = self.line[self.idx];
         // One-pole low-pass on the feedback: brighter or darker tail.
-        self.lpf_state = (1.0 - damping) * out + damping * self.lpf_state;
-        self.line[self.idx] = x + feedback * self.lpf_state;
+        // Both recursive writes are flushed-to-zero so the reverb
+        // tail terminates instead of dwelling subnormal for seconds.
+        self.lpf_state = crate::ftz((1.0 - damping) * out + damping * self.lpf_state);
+        self.line[self.idx] = crate::ftz(x + feedback * self.lpf_state);
         self.idx += 1;
         if self.idx >= self.line.len() {
             self.idx = 0;
@@ -122,7 +124,7 @@ impl AllPass {
     fn step(&mut self, x: f32) -> f32 {
         let buf = self.line[self.idx];
         let out = -ALLPASS_K * x + buf;
-        self.line[self.idx] = x + ALLPASS_K * buf;
+        self.line[self.idx] = crate::ftz(x + ALLPASS_K * buf);
         self.idx += 1;
         if self.idx >= self.line.len() {
             self.idx = 0;
