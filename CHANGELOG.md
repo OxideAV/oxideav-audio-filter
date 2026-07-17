@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/OxideAV/oxideav-audio-filter/compare/v0.1.2...v0.2.0) - 2026-07-17
+
+### Other
+
+- doc(hidden) the internal fft kernel + __oxideav_entry macro-shim re-export
+- scrub product name from historical wah CHANGELOG entry
+- finish wah voicing description scrub across lib doc + README
+- describe the wah preset by its sweep voicing, not a product name
+- crossfeed entry in the criterion filters harness
+- SVF analytic transfer-function match + resampler tone-purity
+- AudioFilter::latency_samples trait method, verified against measured group delay
+- headphone crossfeed filter (ITD delay + head-shadow LPF + level-compensated bleed)
+- denormal audit: joint flush-to-zero on all recursive filter state + decay contract suite
+- hostile-parameter contract for every constructor (NaN/inf/huge scrub) + fix pitch_shift unbounded-memory hang
+- chunk-size invariance harness for all 66 filters + fix wah/talkbox frame-dependence
+- add CI / crates.io / docs.rs / MIT-license badges
+- document feedback detector topology (README + CHANGELOG)
+- wire feedback topology into registry compressor key
+- add feedback detector topology to Compressor
+- band-limited-interpolation milestone — ratio-scaled anti-alias filter + closed-form response verification (round 352)
+- New York / Motown parallel compression (dynamic-range ref §7)
+- 'the reference notes' -> 'the spec notes' in compressor doc-citation
+- add selectable peak / RMS detector mode (round 329)
+- fourth dynamics quadrant (boost above threshold)
+- Welch + Parzen polynomial B-spline windows (round 313)
+- FracDelayLine fractional-delay primitive (linear/Hermite/Lagrange/sinc)
+- round 299 — UpwardCompressor (boost-below-threshold dynamics quadrant)
+- FIR analysis-window catalogue module (round 292)
+- replace external-implementation and publication attributions with neutral algorithm descriptions
+- complete the staged EQ-cookbook catalogue (constant-peak BPF + slope shelves)
+- round 280: dither — TPDF/RPDF requantizer with error-feedback noise shaping
+- round 272: stereo_balance_meter — L/R energy-balance observer
+- pass-through DC-offset observer (round 263)
+- pass-through ZCR observer (round 258)
+- drop release-plz.toml — use release-plz defaults across the workspace
+- tunable single-tap comb (FIR + IIR + Karplus-Strong, round 248)
+- Pearson coefficient sliding-window observer (round 231)
+- peak-to-RMS sliding-window observer (round 226)
+- non-linear sliding-window impulse-noise restoration (round 220)
+- add Criterion bench harness covering seven filter families (round 215)
+- add paired pre_emphasis / de_emphasis shelving family (round 209)
+- Chamberlin SVF (LP/BP/HP/Notch from one recurrence, round 205)
+
 ### Changed
 
 - Marked the internal `fft` kernel module and the crate-root
