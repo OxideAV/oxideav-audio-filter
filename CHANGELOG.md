@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Marked the internal `fft` kernel module and the crate-root
+  `__oxideav_entry` macro-shim re-export `#[doc(hidden)]` so
+  cargo-semver-checks tracks only the stable filter API; no behavioural
+  change.
+
 ### Added
 
 - round 401: **`crossfeed`** — headphone crossfeed filter (opposite-channel

@@ -312,6 +312,9 @@ pub mod envelope_follower;
 pub mod equalizer;
 pub mod exciter;
 pub mod expander;
+// Internal radix-2 FFT kernel backing the spectrogram + spectral unit
+// tests; not part of the stable filter API (no README entry, no re-export).
+#[doc(hidden)]
 pub mod fft;
 pub mod flanger;
 pub mod frac_delay;
@@ -399,7 +402,10 @@ pub use phaser::Phaser;
 pub use pink_noise::PinkNoise;
 pub use pitch_shift::PitchShift;
 pub use pre_emphasis::{Curve as EmphasisCurve, PreEmphasis};
-pub use registry::{__oxideav_entry, register};
+pub use registry::register;
+// Internal: `oxideav_core::register!` dispatch shim re-export, not user-facing API.
+#[doc(hidden)]
+pub use registry::__oxideav_entry;
 pub use resample::Resample;
 pub use reverb::Reverb;
 pub use ring_modulator::RingModulator;
