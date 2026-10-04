@@ -317,6 +317,7 @@ pub mod expander;
 #[doc(hidden)]
 pub mod fft;
 pub mod flanger;
+pub mod format_convert;
 pub mod frac_delay;
 pub mod freq_shifter;
 pub mod gain_normalizer;
@@ -385,6 +386,7 @@ pub use equalizer::Equalizer;
 pub use exciter::Exciter;
 pub use expander::Expander;
 pub use flanger::Flanger;
+pub use format_convert::FormatConvert;
 pub use frac_delay::{FracDelayLine, Interp};
 pub use freq_shifter::FreqShifter;
 pub use gain_normalizer::GainNormalizer;

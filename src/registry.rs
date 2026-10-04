@@ -28,6 +28,8 @@ pub fn register(ctx: &mut RuntimeContext) {
     ctx.filters.register("echo", Box::new(make_echo));
     ctx.filters.register("resample", Box::new(make_resample));
     ctx.filters
+        .register("sample_format", Box::new(make_sample_format));
+    ctx.filters
         .register("spectrogram", Box::new(make_spectrogram));
     ctx.filters.register("downmix", Box::new(make_downmix));
     ctx.filters.register("biquad", Box::new(make_biquad));
@@ -337,6 +339,37 @@ fn make_resample(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFi
     let out_port = PortSpec::audio("audio", dst_rate, channels, format);
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(filter),
+        in_port,
+        out_port,
+    )))
+}
+
+fn make_sample_format(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
+    use crate::format_convert::{parse_sample_format, FormatConvert};
+    let name = params
+        .as_object()
+        .and_then(|m| m.get("format"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            Error::invalid("job: filter 'sample_format' needs `format` (e.g. \"s16\")")
+        })?;
+    let target = parse_sample_format(name).ok_or_else(|| {
+        Error::invalid(format!(
+            "job: filter 'sample_format': unknown format {name:?}"
+        ))
+    })?;
+    let in_port = audio_in_port(inputs);
+    let (rate, channels) = match &in_port.params {
+        PortParams::Audio {
+            sample_rate,
+            channels,
+            ..
+        } => (*sample_rate, *channels),
+        _ => (48_000, 2),
+    };
+    let out_port = PortSpec::audio("audio", rate, channels, target);
+    Ok(Box::new(AudioFilterAdapter::new(
+        Box::new(FormatConvert::new(target)),
         in_port,
         out_port,
     )))
