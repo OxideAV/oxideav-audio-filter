@@ -7,6 +7,9 @@
 //! which clamps to the destination range, so a float stream that
 //! overshoots full scale saturates instead of wrapping.
 //!
+//! The source layout is reconciled per frame ([`reconcile`]) so an
+//! undeclared or mis-declared stream format still converts correctly.
+//!
 //! The pipeline inserts this stage automatically in front of an encoder
 //! whose declared input formats do not include the running format
 //! (e.g. an `F32` decoder feeding an `S16`-only encoder).
@@ -47,6 +50,53 @@ pub fn sample_format_name(fmt: SampleFormat) -> Option<&'static str> {
     NAMES.iter().find(|(_, f)| *f == fmt).map(|&(n, _)| n)
 }
 
+/// The layout `frame` is actually in, given the stream's `declared`
+/// format. Streams do not always declare what their decoder emits (a
+/// container that only knows "MP3 audio" leaves the format unset, and
+/// the pipeline then assumes a default), so the frame's plane count and
+/// byte length win when they contradict the declaration: one plane per
+/// channel means planar, and the per-sample byte width follows from the
+/// plane length. A 4-byte width keeps the declared float/integer
+/// family.
+pub fn reconcile(frame: &AudioFrame, declared: SampleFormat, channels: u16) -> SampleFormat {
+    let ch = usize::from(channels.max(1));
+    let n = frame.samples as usize;
+    let Some(first) = frame.data.first() else {
+        return declared;
+    };
+    if n == 0 {
+        return declared;
+    }
+    let planar = if ch > 1 {
+        frame.data.len() == ch
+    } else {
+        declared.is_planar()
+    };
+    let per_plane = if planar { n } else { n * ch };
+    if first.len() % per_plane != 0 {
+        return declared;
+    }
+    let bps = first.len() / per_plane;
+    if bps == declared.bytes_per_sample() && planar == declared.is_planar() {
+        return declared;
+    }
+    let float = declared.is_float();
+    match (bps, planar) {
+        (1, false) => SampleFormat::U8,
+        (1, true) => SampleFormat::U8P,
+        (2, false) => SampleFormat::S16,
+        (2, true) => SampleFormat::S16P,
+        (3, false) => SampleFormat::S24,
+        (4, false) if float => SampleFormat::F32,
+        (4, false) => SampleFormat::S32,
+        (4, true) if float => SampleFormat::F32P,
+        (4, true) => SampleFormat::S32P,
+        (8, false) => SampleFormat::F64,
+        (8, true) => SampleFormat::F64P,
+        _ => declared,
+    }
+}
+
 /// Converts frames to a fixed target sample format.
 pub struct FormatConvert {
     target: SampleFormat,
@@ -70,13 +120,14 @@ impl AudioFilter for FormatConvert {
         input: &AudioFrame,
         params: AudioStreamParams,
     ) -> Result<Vec<AudioFrame>> {
-        if params.format == self.target {
-            return Ok(vec![input.clone()]);
-        }
         if params.channels == 0 {
             return Err(Error::invalid("sample_format: zero channels"));
         }
-        let data = decode_to_f32(input, params.format, params.channels)?;
+        let source = reconcile(input, params.format, params.channels);
+        if source == self.target {
+            return Ok(vec![input.clone()]);
+        }
+        let data = decode_to_f32(input, source, params.channels)?;
         Ok(vec![encode_from_f32(
             self.target,
             params.channels,
@@ -147,6 +198,41 @@ mod tests {
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
         assert_eq!(got, vec![1, -1, 2, -2]);
+    }
+
+    #[test]
+    fn undeclared_planar_s16_is_detected() {
+        // Declared F32 (the pipeline default for an unknown format) but
+        // the decoder emitted S16 planar: reconcile from the planes.
+        let l: Vec<u8> = [100i16, 200].iter().flat_map(|s| s.to_le_bytes()).collect();
+        let r: Vec<u8> = [-100i16, -200]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let frame = AudioFrame {
+            samples: 2,
+            pts: None,
+            data: vec![l, r],
+        };
+        assert_eq!(reconcile(&frame, SampleFormat::F32, 2), SampleFormat::S16P);
+        let mut c = FormatConvert::new(SampleFormat::S16);
+        let out = c.process(&frame, params(SampleFormat::F32)).unwrap();
+        let got: Vec<i16> = out[0].data[0]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        assert_eq!(got, vec![100, -100, 200, -200]);
+    }
+
+    #[test]
+    fn consistent_declaration_is_trusted() {
+        let frame = AudioFrame {
+            samples: 2,
+            pts: None,
+            data: vec![vec![0; 16]],
+        };
+        assert_eq!(reconcile(&frame, SampleFormat::F32, 2), SampleFormat::F32);
+        assert_eq!(reconcile(&frame, SampleFormat::S32, 2), SampleFormat::S32);
     }
 
     #[test]
