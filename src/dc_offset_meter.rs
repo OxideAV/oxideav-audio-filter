@@ -331,7 +331,7 @@ impl AudioFilter for DcOffsetMeter {
             // Periodic rebuild of `sum` from ring contents once per
             // full window to bound f64 round-off drift on long
             // streams. Same cadence as CrestFactorMeter.
-            if state.samples_seen >= nwin as u64 && state.samples_seen % (nwin as u64) == 0 {
+            if state.samples_seen >= nwin as u64 && state.samples_seen.is_multiple_of(nwin as u64) {
                 for (ch_idx, ring) in state.rings.iter().enumerate() {
                     let mut acc: f64 = 0.0;
                     for &v in ring.iter() {

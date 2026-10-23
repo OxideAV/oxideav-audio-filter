@@ -294,11 +294,7 @@ impl Default for ZeroCrossingRateMeter {
 /// would be exactly that bug.)
 #[inline]
 fn sign_pn(x: f32) -> i8 {
-    if x < 0.0 {
-        -1
-    } else {
-        1
-    }
+    if x < 0.0 { -1 } else { 1 }
 }
 
 impl AudioFilter for ZeroCrossingRateMeter {

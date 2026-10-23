@@ -118,8 +118,10 @@ fn assert_invariant(name: &str, channels: usize, mut make: impl FnMut() -> Box<d
             // Find the first differing f32 for a readable failure.
             let (mut idx, mut a, mut b) = (0usize, 0.0f32, 0.0f32);
             for (i, (ga, gb)) in got
-                .chunks_exact(4)
-                .zip(reference.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(reference.as_chunks::<4>().0.iter())
                 .enumerate()
             {
                 if ga != gb {
@@ -135,7 +137,7 @@ fn assert_invariant(name: &str, channels: usize, mut make: impl FnMut() -> Box<d
 }
 
 macro_rules! invariant {
-    ($test:ident, $name:literal, $channels:expr, $make:expr) => {
+    ($test:ident, $name:literal, $channels:expr_2021, $make:expr_2021) => {
         #[test]
         fn $test() {
             assert_invariant($name, $channels, || Box::new($make));

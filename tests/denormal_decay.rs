@@ -57,7 +57,7 @@ fn assert_decays(name: &str, filter: &mut dyn AudioFilter) {
     let check = |frame_idx: usize, frames: &[AudioFrame]| {
         for f in frames {
             for plane in &f.data {
-                for c in plane.chunks_exact(4) {
+                for c in plane.as_chunks::<4>().0 {
                     let v = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
                     assert!(
                         v == 0.0 || v.abs() >= f32::MIN_POSITIVE,
@@ -86,7 +86,7 @@ fn assert_decays(name: &str, filter: &mut dyn AudioFilter) {
 }
 
 macro_rules! decays {
-    ($test:ident, $name:literal, $make:expr) => {
+    ($test:ident, $name:literal, $make:expr_2021) => {
         #[test]
         fn $test() {
             let mut f = $make;

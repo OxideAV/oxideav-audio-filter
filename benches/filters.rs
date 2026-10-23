@@ -63,12 +63,12 @@
 //!
 //! Add `-- --baseline <name>` to compare against a saved baseline.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 use oxideav_audio_filter::{
-    biquad::{Biquad, BiquadKind},
     AudioFilter, AudioStreamParams, Compressor, Crossfeed, Equalizer, LoudnessITU, Resample,
     Reverb, TruePeakDetector,
+    biquad::{Biquad, BiquadKind},
 };
 use oxideav_core::{AudioFrame, SampleFormat};
 

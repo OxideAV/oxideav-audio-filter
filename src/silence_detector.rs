@@ -247,7 +247,9 @@ mod tests {
         let frame = make_f32_mono(&in_samples);
         let out = det.process(&frame, f32_mono(fs)).unwrap();
         let got: Vec<f32> = out[0].data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
         for i in 0..in_samples.len() {
@@ -278,8 +280,8 @@ mod tests {
         // detector should switch to silent. Feed 50 ms of zeros to be
         // safely past the envelope release.
         let mut zeros = vec![0.0f32; 4800]; // 100 ms
-                                            // Decay envelope. Feed enough zero-frames for the envelope
-                                            // (release_ms = 50 ms) plus hold to settle.
+        // Decay envelope. Feed enough zero-frames for the envelope
+        // (release_ms = 50 ms) plus hold to settle.
         for _ in 0..5 {
             let frame = make_f32_mono(&zeros);
             det.process(&frame, f32_mono(fs)).unwrap();

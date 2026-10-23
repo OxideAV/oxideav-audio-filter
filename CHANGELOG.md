@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- edition 2024, MSRV 1.95.
+
+### Changed
+
 - Marked the internal `fft` kernel module and the crate-root
   `__oxideav_entry` macro-shim re-export `#[doc(hidden)]` so
   cargo-semver-checks tracks only the stable filter API; no behavioural

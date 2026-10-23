@@ -192,7 +192,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -354,7 +356,9 @@ mod tests {
         let out = rm.process(&frame, f32_stereo(48_000)).unwrap();
         // The output frame is interleaved L,R,L,R, ... 8 bytes/sample.
         let interleaved: Vec<f32> = out[0].data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
         assert_eq!(interleaved.len(), pairs.len() * 2);

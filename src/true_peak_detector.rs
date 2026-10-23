@@ -440,7 +440,7 @@ fn kaiser_lowpass(m: usize, oversample: usize, kaiser_db: f64) -> Vec<f64> {
 /// evaluating sub-filter `phi` against the input delay line yields
 /// the oversampled sample at fractional offset `phi / L`.
 fn polyphase_split(h: &[f64], oversample: usize) -> Vec<Vec<f64>> {
-    assert!(h.len() % oversample == 0);
+    assert!(h.len().is_multiple_of(oversample));
     let k = h.len() / oversample;
     let mut phases = vec![Vec::with_capacity(k); oversample];
     for (i, &c) in h.iter().enumerate() {

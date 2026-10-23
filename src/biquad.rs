@@ -159,11 +159,7 @@ struct Coeffs {
 /// sample. NaN falls back to `default`; everything else clamps to
 /// `[lo, hi]` (note plain `f64::clamp` PROPAGATES NaN, hence the split).
 fn sane(v: f64, default: f64, lo: f64, hi: f64) -> f64 {
-    if v.is_nan() {
-        default
-    } else {
-        v.clamp(lo, hi)
-    }
+    if v.is_nan() { default } else { v.clamp(lo, hi) }
 }
 
 impl Coeffs {
@@ -1270,7 +1266,7 @@ mod tests {
         let mut buf = vec![0.0f32; frames * 2];
         for i in 0..frames {
             buf[i * 2] = 1.0; // L
-                              // R stays 0
+            // R stays 0
         }
         bq.process_in_place(&mut buf, 2, fs);
         let r_peak = (0..frames)

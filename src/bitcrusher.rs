@@ -122,7 +122,7 @@ impl AudioFilter for Bitcrusher {
             let st = &mut self.state[ch_idx];
             for s in buf.iter_mut() {
                 // Update held value at boundaries.
-                if st.counter % dec == 0 {
+                if st.counter.is_multiple_of(dec) {
                     st.hold = Self::quantise_with(bits, *s);
                 }
                 st.counter = st.counter.wrapping_add(1);
@@ -161,7 +161,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }

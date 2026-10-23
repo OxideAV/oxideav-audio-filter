@@ -37,7 +37,7 @@ fn run(f: &mut dyn AudioFilter, x: &[f32]) -> Vec<f32> {
     let mut frames = f.process(&frame(x), params()).expect("process");
     frames.extend(f.flush(params()).expect("flush"));
     for fr in &frames {
-        for c in fr.data[0].chunks_exact(4) {
+        for c in fr.data[0].as_chunks::<4>().0 {
             out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
         }
     }

@@ -200,7 +200,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }

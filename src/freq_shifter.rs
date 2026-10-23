@@ -107,7 +107,7 @@ fn hilbert_kernel(half_taps: usize) -> Vec<f32> {
     for (k, slot) in out.iter_mut().enumerate() {
         let n_signed = k as isize - half_taps as isize;
         // n == 0 → 0; even n → 0 in the ideal Hilbert FIR.
-        if n_signed == 0 || n_signed.unsigned_abs() % 2 == 0 {
+        if n_signed == 0 || n_signed.unsigned_abs().is_multiple_of(2) {
             *slot = 0.0;
             continue;
         }
@@ -271,7 +271,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -388,7 +390,7 @@ mod tests {
         let centre = 63usize;
         for (i, v) in k.iter().enumerate() {
             let n = i as isize - centre as isize;
-            if n == 0 || n.unsigned_abs() % 2 == 0 {
+            if n == 0 || n.unsigned_abs().is_multiple_of(2) {
                 assert!(
                     v.abs() < 1e-9,
                     "even tap {i} should be 0 in ideal Hilbert FIR, got {v}"

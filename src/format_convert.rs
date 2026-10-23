@@ -173,7 +173,9 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].pts, Some(7));
         let got: Vec<i16> = out[0].data[0]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
         assert!((got[0] as i32 - 16_384).abs() <= 1, "{got:?}");
@@ -194,7 +196,9 @@ mod tests {
         let mut c = FormatConvert::new(SampleFormat::S16);
         let out = c.process(&frame, params(SampleFormat::S16P)).unwrap();
         let got: Vec<i16> = out[0].data[0]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
         assert_eq!(got, vec![1, -1, 2, -2]);
@@ -218,7 +222,9 @@ mod tests {
         let mut c = FormatConvert::new(SampleFormat::S16);
         let out = c.process(&frame, params(SampleFormat::F32)).unwrap();
         let got: Vec<i16> = out[0].data[0]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
         assert_eq!(got, vec![100, -100, 200, -200]);

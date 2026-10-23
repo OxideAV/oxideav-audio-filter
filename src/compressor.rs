@@ -525,7 +525,7 @@ mod tests {
         // RMS_dB = -10 (peak) - 3.01 = -13.01 dBFS, threshold = -25.01.
         let fs = 48_000u32;
         let peak_amp = 10.0f32.powf(-10.0 / 20.0); // sine peak at -10 dBFS
-                                                   // Sine RMS is 20·log10(1/√2) = -3.0103 dB below the peak.
+        // Sine RMS is 20·log10(1/√2) = -3.0103 dB below the peak.
         let rms_db = -10.0 + 20.0 * (1.0f32 / 2.0f32.sqrt()).log10(); // ≈ -13.01 dBFS
         let thresh_db = rms_db - 12.0; // RMS is 12 dB over
         let ratio = 4.0f32;
@@ -773,7 +773,7 @@ mod tests {
 
         // Threshold linear:
         let thresh_lin = 10.0f32.powf(-6.0 / 20.0); // ≈ 0.501
-                                                    // Look at the *tail* (skip the attack overshoot window).
+        // Look at the *tail* (skip the attack overshoot window).
         let tail = &channels[0][8_000..];
         let peak = tail.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
         // Allow a modest overshoot due to the smoothed envelope (the

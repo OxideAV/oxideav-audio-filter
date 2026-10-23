@@ -378,7 +378,7 @@ pub use dc_offset_meter::DcOffsetMeter;
 pub use de_emphasis::DeEmphasis;
 pub use de_esser::DeEsser;
 pub use dither::{Dither, DitherMode, NoiseShaping};
-pub use downmix::{auto_downmix, DownmixFilter, DownmixMode};
+pub use downmix::{DownmixFilter, DownmixMode, auto_downmix};
 pub use ducker::Ducker;
 pub use echo::Echo;
 pub use envelope_follower::{EnvelopeFollower, EnvelopeMode};
@@ -476,11 +476,7 @@ pub(crate) fn clamp_param(v: f32, nan_fallback: f32, lo: f32, hi: f32) -> f32 {
 /// one-pole/biquad state variables), never to the dry signal path.
 #[inline]
 pub(crate) fn ftz(v: f32) -> f32 {
-    if v.abs() < 1.0e-25 {
-        0.0
-    } else {
-        v
-    }
+    if v.abs() < 1.0e-25 { 0.0 } else { v }
 }
 
 /// `f64` twin of [`ftz`] for filters that keep f64 state (biquad,
@@ -489,11 +485,7 @@ pub(crate) fn ftz(v: f32) -> f32 {
 /// toward 1e-308 keeps the recursion busy with meaningless arithmetic.
 #[inline]
 pub(crate) fn ftz64(v: f64) -> f64 {
-    if v.abs() < 1.0e-25 {
-        0.0
-    } else {
-        v
-    }
+    if v.abs() < 1.0e-25 { 0.0 } else { v }
 }
 
 /// Streaming audio filter.
@@ -509,7 +501,7 @@ pub(crate) fn ftz64(v: f64) -> f64 {
 pub trait AudioFilter: Send {
     /// Process one input frame, returning zero or more output frames.
     fn process(&mut self, input: &AudioFrame, params: AudioStreamParams)
-        -> Result<Vec<AudioFrame>>;
+    -> Result<Vec<AudioFrame>>;
 
     /// Drain any internally buffered samples at end-of-stream. `params`
     /// describes the same stream-level shape passed to

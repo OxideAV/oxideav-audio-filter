@@ -229,7 +229,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -257,7 +259,7 @@ mod tests {
         let fs = 48_000u32;
         let n = (fs as usize) / 10; // 100 ms per frame
         let mut g = AdaptiveNoiseGate::with(12.0, 200.0, 5.0, 50.0); // fast learner for the test
-                                                                     // Feed 30 frames = 3 s.
+        // Feed 30 frames = 3 s.
         let mut last_out = Vec::new();
         for k in 0..30 {
             let x = splitmix_noise(n, 0.01, 0xABCD + k as u64);

@@ -64,7 +64,7 @@ fn assert_finite_output(label: &str, channels: usize, filter: &mut dyn AudioFilt
     frames.extend(filter.flush(p).expect("flush must not error"));
     for f in &frames {
         for plane in &f.data {
-            for c in plane.chunks_exact(4) {
+            for c in plane.as_chunks::<4>().0 {
                 let v = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
                 assert!(
                     v.is_finite(),
@@ -85,7 +85,7 @@ fn check(name: &str, channels: usize, mut make: impl FnMut(f32) -> Box<dyn Audio
 }
 
 macro_rules! hostile {
-    ($test:ident, $name:literal, $channels:expr, |$h:ident| $make:expr) => {
+    ($test:ident, $name:literal, $channels:expr_2021, |$h:ident| $make:expr_2021) => {
         #[test]
         fn $test() {
             check($name, $channels, |$h| Box::new($make));
@@ -333,12 +333,14 @@ fn resample_rejects_bad_rates() {
 
 #[test]
 fn downmix_rejects_discrete_layouts() {
-    assert!(DownmixFilter::new(
-        ChannelLayout::DiscreteN(8),
-        ChannelLayout::Mono,
-        DownmixMode::Average
-    )
-    .is_err());
+    assert!(
+        DownmixFilter::new(
+            ChannelLayout::DiscreteN(8),
+            ChannelLayout::Mono,
+            DownmixMode::Average
+        )
+        .is_err()
+    );
 }
 
 #[test]

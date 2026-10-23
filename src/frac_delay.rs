@@ -289,9 +289,9 @@ impl FracDelayLine {
     /// `xq = (i − base) + f`.
     fn read_lagrange(&self, channel: usize, i: isize, f: f64, n: usize) -> f32 {
         let order = n; // sanitized to [1, MAX_LAGRANGE_ORDER]
-                       // Centre the (order+1) nodes so the block straddles [i, i+1].
-                       // For odd order this is symmetric; for even order it leans one
-                       // sample toward the newer side.
+        // Centre the (order+1) nodes so the block straddles [i, i+1].
+        // For odd order this is symmetric; for even order it leans one
+        // sample toward the newer side.
         let left = (order / 2) as isize;
         let base = i - left;
         let xq = (i - base) as f64 + f; // query coordinate in node space
@@ -393,7 +393,7 @@ mod tests {
     fn linear_midpoint_is_average() {
         let mut l = FracDelayLine::new(1, 16, Interp::Linear);
         push_mono(&mut l, &[1.0, 3.0]); // newest = 3.0 (delay 0), 1.0 (delay 1)
-                                        // delay 0.5 sits halfway between the two -> mean.
+        // delay 0.5 sits halfway between the two -> mean.
         assert!((l.read(0, 0.5) - 2.0).abs() < 1e-6);
     }
 

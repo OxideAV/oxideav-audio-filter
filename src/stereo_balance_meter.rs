@@ -324,7 +324,9 @@ impl AudioFilter for StereoBalanceMeter {
                 // Periodic rebuild of both sums from the ring contents
                 // once per full window. Bounds f64 round-off drift on
                 // long streams at O(1) amortised per sample.
-                if state.samples_seen >= nwin as u64 && state.samples_seen % (nwin as u64) == 0 {
+                if state.samples_seen >= nwin as u64
+                    && state.samples_seen.is_multiple_of(nwin as u64)
+                {
                     let mut qx: f64 = 0.0;
                     let mut qy: f64 = 0.0;
                     for k in 0..nwin {

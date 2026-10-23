@@ -518,7 +518,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -889,7 +891,7 @@ mod tests {
                 .process(&sine_f32(freq, src, n_in), f32_mono(src))
                 .unwrap();
             for fr in &produced {
-                for c in fr.data[0].chunks_exact(4) {
+                for c in fr.data[0].as_chunks::<4>().0 {
                     out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
                 }
             }

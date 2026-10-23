@@ -356,7 +356,9 @@ impl AudioFilter for StereoCorrelationMeter {
                 // contents once per full window. Bounds f64 round-off
                 // drift on streams long enough to matter, at O(N)
                 // every N samples = O(1) amortised per sample.
-                if state.samples_seen >= nwin as u64 && state.samples_seen % (nwin as u64) == 0 {
+                if state.samples_seen >= nwin as u64
+                    && state.samples_seen.is_multiple_of(nwin as u64)
+                {
                     let mut sx: f64 = 0.0;
                     let mut sy: f64 = 0.0;
                     let mut sxx: f64 = 0.0;

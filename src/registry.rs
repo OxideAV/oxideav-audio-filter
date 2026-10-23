@@ -7,8 +7,8 @@
 //! itself doesn't need to depend on this crate.
 
 use oxideav_core::{
-    filter::FilterContext, ChannelLayout, Error, Frame, MediaType, PortParams, PortSpec, Result,
-    RuntimeContext, SampleFormat, StreamFilter,
+    ChannelLayout, Error, Frame, MediaType, PortParams, PortSpec, Result, RuntimeContext,
+    SampleFormat, StreamFilter, filter::FilterContext,
 };
 use serde_json::Value;
 use std::str::FromStr;
@@ -345,7 +345,7 @@ fn make_resample(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFi
 }
 
 fn make_sample_format(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::format_convert::{parse_sample_format, FormatConvert};
+    use crate::format_convert::{FormatConvert, parse_sample_format};
     let name = params
         .as_object()
         .and_then(|m| m.get("format"))
@@ -435,7 +435,7 @@ fn make_spectrogram(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn Strea
 ///   - `from`: source layout name. When absent the source is inferred
 ///     from the upstream port's channel count.
 fn make_downmix(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::{auto_downmix, DownmixFilter, DownmixMode};
+    use crate::{DownmixFilter, DownmixMode, auto_downmix};
 
     let p = params.as_object();
     let get_str = |k: &str| p.and_then(|m| m.get(k)).and_then(|v| v.as_str());
@@ -937,8 +937,8 @@ fn make_phaser(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilt
 ///   {"kind": "high_shelf","freq_hz": 10000,"q": 0.707, "gain_db": 4}
 /// ]}` — N-band parametric EQ.
 fn make_equalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
-    use crate::biquad::BiquadKind;
     use crate::Equalizer;
+    use crate::biquad::BiquadKind;
     let in_port = audio_in_port(inputs);
     let (sample_rate, _channels, _format) = match &in_port.params {
         PortParams::Audio {
@@ -1001,7 +1001,7 @@ fn make_equalizer(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamF
                 other => {
                     return Err(Error::invalid(format!(
                         "equalizer: unknown band kind {other:?}"
-                    )))
+                    )));
                 }
             };
             eq = eq.add_band(bk);

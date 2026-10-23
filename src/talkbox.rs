@@ -278,7 +278,9 @@ mod tests {
 
     fn read_f32(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -409,7 +411,7 @@ mod tests {
         let got = read_f32(&out[0]);
         let mut right_peak = 0.0f32;
         let mut left_peak = 0.0f32;
-        for pair in got.chunks_exact(2) {
+        for pair in got.as_chunks::<2>().0 {
             left_peak = left_peak.max(pair[0].abs());
             right_peak = right_peak.max(pair[1].abs());
         }

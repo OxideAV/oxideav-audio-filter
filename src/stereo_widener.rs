@@ -110,7 +110,7 @@ mod tests {
     fn read_stereo(frame: &AudioFrame) -> (Vec<f32>, Vec<f32>) {
         let mut l = Vec::new();
         let mut r = Vec::new();
-        for chunk in frame.data[0].chunks_exact(8) {
+        for chunk in frame.data[0].as_chunks::<8>().0 {
             l.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             r.push(f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]));
         }
@@ -135,7 +135,9 @@ mod tests {
             // L = R = mid = (Lin + Rin) / 2
             let want = 0.5
                 * (frame.data[0][i * 8..i * 8 + 8]
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .sum::<f32>());
             assert!(

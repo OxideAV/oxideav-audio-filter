@@ -469,7 +469,9 @@ mod tests {
 
     fn read_f32_mono(frame: &AudioFrame) -> Vec<f32> {
         frame.data[0]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -477,7 +479,7 @@ mod tests {
     fn read_f32_stereo(frame: &AudioFrame) -> (Vec<f32>, Vec<f32>) {
         let mut left = Vec::new();
         let mut right = Vec::new();
-        for c in frame.data[0].chunks_exact(8) {
+        for c in frame.data[0].as_chunks::<8>().0 {
             left.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
             right.push(f32::from_le_bytes([c[4], c[5], c[6], c[7]]));
         }

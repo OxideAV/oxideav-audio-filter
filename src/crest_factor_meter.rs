@@ -333,7 +333,7 @@ impl AudioFilter for CrestFactorMeter {
 
             // Periodic rebuild of sum_sq from ring contents once per
             // full window to bound f64 round-off drift on long streams.
-            if state.samples_seen >= nwin as u64 && state.samples_seen % (nwin as u64) == 0 {
+            if state.samples_seen >= nwin as u64 && state.samples_seen.is_multiple_of(nwin as u64) {
                 for (ch_idx, ring) in state.rings.iter().enumerate() {
                     let mut acc: f64 = 0.0;
                     for &v in ring.iter() {
@@ -351,10 +351,10 @@ impl AudioFilter for CrestFactorMeter {
             let mut rms: f32 = 0.0;
             let nf = nwin as f64;
             for (ch_idx, dq) in state.peak_deque.iter().enumerate() {
-                if let Some(&(p, _)) = dq.front() {
-                    if p > peak {
-                        peak = p;
-                    }
+                if let Some(&(p, _)) = dq.front()
+                    && p > peak
+                {
+                    peak = p;
                 }
                 let r = (state.sum_sq[ch_idx] / nf).max(0.0).sqrt() as f32;
                 if r > rms {
@@ -515,7 +515,7 @@ mod tests {
         let n = period * 16;
         let samples: Vec<f32> = (0..n)
             .map(|i| {
-                if (i / (period / 2)) % 2 == 0 {
+                if (i / (period / 2)).is_multiple_of(2) {
                     0.5
                 } else {
                     -0.5
