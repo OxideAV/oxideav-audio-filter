@@ -138,6 +138,27 @@ oxideav_core::register!("audio_filter", register);
 /// input port and threaded into every `process()` / `flush()` call —
 /// the trait used to read these off the frame, but they live on the
 /// stream's `CodecParameters` now.
+///
+/// # `Frame::StreamParams`
+///
+/// A shape-change event on the input folds into the cached shape
+/// ([`AudioStreamParams::merged_with`]), then
+/// [`AudioFilter::reconfigure`] re-plans the inner filter (any frames
+/// of the old shape it returns are emitted first). The output side
+/// follows one rule:
+///
+/// * a filter whose output shape equals its input shape before and
+///   after the change (every per-sample effect, every meter) forwards
+///   the event unchanged — it is transparent to stream shape;
+/// * any other filter emits its own `StreamParams` (the incoming
+///   parameters with the output's rate / channels / format written
+///   over them) only when its output shape actually changed, and
+///   nothing otherwise — a resampler pinned to 48 kHz stays silent
+///   when its input moves from 44.1 kHz to 48 kHz.
+///
+/// A filter that cannot adapt returns `Error::Unsupported` from
+/// `reconfigure`; the adapter propagates it and keeps its previous
+/// shape.
 struct AudioFilterAdapter {
     inner: Box<dyn AudioFilter>,
     inp: [PortSpec; 1],
@@ -145,32 +166,78 @@ struct AudioFilterAdapter {
     params: AudioStreamParams,
 }
 
+fn port_audio_params(port: &PortSpec) -> Option<AudioStreamParams> {
+    match &port.params {
+        PortParams::Audio {
+            format,
+            channels,
+            sample_rate,
+        } => Some(AudioStreamParams {
+            format: *format,
+            channels: *channels,
+            sample_rate: *sample_rate,
+        }),
+        _ => None,
+    }
+}
+
+fn set_port_audio_params(port: &mut PortSpec, p: AudioStreamParams) {
+    port.params = PortParams::Audio {
+        sample_rate: p.sample_rate,
+        channels: p.channels,
+        format: p.format,
+    };
+}
+
 impl AudioFilterAdapter {
     fn new(inner: Box<dyn AudioFilter>, in_port: PortSpec, out_port: PortSpec) -> Self {
-        let params = match &in_port.params {
-            PortParams::Audio {
-                format,
-                channels,
-                sample_rate,
-            } => AudioStreamParams {
-                format: *format,
-                channels: *channels,
-                sample_rate: *sample_rate,
-            },
-            // Non-audio input ports shouldn't reach this adapter, but pick
-            // a defensible default so we don't panic on misuse.
-            _ => AudioStreamParams {
-                format: SampleFormat::F32,
-                channels: 2,
-                sample_rate: 48_000,
-            },
-        };
+        // Non-audio input ports shouldn't reach this adapter, but pick
+        // a defensible default so we don't panic on misuse.
+        let params = port_audio_params(&in_port).unwrap_or(AudioStreamParams {
+            format: SampleFormat::F32,
+            channels: 2,
+            sample_rate: 48_000,
+        });
         Self {
             inner,
             inp: [in_port],
             outp: [out_port],
             params,
         }
+    }
+
+    fn on_stream_params(
+        &mut self,
+        ctx: &mut dyn FilterContext,
+        incoming: &oxideav_core::CodecParameters,
+    ) -> Result<()> {
+        let from = self.params;
+        let to = from.merged_with(incoming);
+        let out_from = self.inner.output_params(from);
+        let out_to = self.inner.output_params(to);
+        let drained = self.inner.reconfigure(from, to)?;
+        for o in drained {
+            ctx.emit(0, Frame::Audio(o))?;
+        }
+        self.params = to;
+        set_port_audio_params(&mut self.inp[0], to);
+        set_port_audio_params(&mut self.outp[0], out_to);
+        if out_from == from && out_to == to {
+            // Shape-transparent: forward the upstream event verbatim.
+            ctx.emit(0, Frame::StreamParams(Box::new(incoming.clone())))?;
+        } else if out_to != out_from {
+            let mut cp = incoming.clone();
+            cp.sample_rate = Some(out_to.sample_rate);
+            cp.sample_format = Some(out_to.format);
+            if out_to.channels != to.channels {
+                // The upstream layout describes the input's channels;
+                // a filter that changes the count owns the new layout.
+                cp.channel_layout = None;
+            }
+            cp.channels = Some(out_to.channels);
+            ctx.emit(0, Frame::StreamParams(Box::new(cp)))?;
+        }
+        Ok(())
     }
 }
 
@@ -186,6 +253,9 @@ impl StreamFilter for AudioFilterAdapter {
             return Err(Error::invalid(format!(
                 "audio-filter adapter: unknown input port {port}"
             )));
+        }
+        if let Some(cp) = frame.stream_params() {
+            return self.on_stream_params(ctx, cp);
         }
         let Frame::Audio(a) = frame else {
             return Err(Error::invalid(
@@ -318,14 +388,17 @@ fn make_echo(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter
     )))
 }
 
+/// `{"filter": "resample", "rate": 48000}` — pin the output rate; or
+/// `{"filter": "resample", "ratio": "2/1"}` (also `2`, or `[2, 1]`) — the
+/// output rate follows the input at `src · num / den`.
+///
+/// With `rate`, a mid-stream input-rate change re-plans the bank and the
+/// output stays at `rate` (no `StreamParams` on the output). With
+/// `ratio`, the output rate moves with the input and the filter
+/// announces it with its own `StreamParams`.
 fn make_resample(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {
     use crate::Resample;
     let p = params.as_object();
-    let dst_rate = p
-        .and_then(|m| m.get("rate"))
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| Error::invalid("job: filter 'resample' needs `rate` (output sample rate)"))?
-        as u32;
     let in_port = audio_in_port(inputs);
     let (src_rate, channels, format) = match &in_port.params {
         PortParams::Audio {
@@ -335,13 +408,56 @@ fn make_resample(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFi
         } => (*sample_rate, *channels, *format),
         _ => (48_000, 2, SampleFormat::F32),
     };
-    let filter = Resample::new(src_rate, dst_rate)?;
-    let out_port = PortSpec::audio("audio", dst_rate, channels, format);
+    let filter = if let Some(r) = p.and_then(|m| m.get("ratio")) {
+        let (num, den) = parse_ratio(r)?;
+        Resample::with_ratio(src_rate, num, den)?
+    } else {
+        let dst_rate = p
+            .and_then(|m| m.get("rate"))
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                Error::invalid(
+                    "job: filter 'resample' needs `rate` (output sample rate) or `ratio`",
+                )
+            })? as u32;
+        Resample::new(src_rate, dst_rate)?
+    };
+    let out_port = PortSpec::audio("audio", filter.dst_rate(), channels, format);
     Ok(Box::new(AudioFilterAdapter::new(
         Box::new(filter),
         in_port,
         out_port,
     )))
+}
+
+/// Parse a resample `ratio`: a positive integer (`2`), a `[num, den]`
+/// pair, or a `"num/den"` string.
+fn parse_ratio(v: &Value) -> Result<(u32, u32)> {
+    let bad = || Error::invalid("resample: `ratio` must be N, [num, den] or \"num/den\"");
+    let term = |x: &Value| {
+        x.as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0)
+    };
+    if let Some(n) = term(v) {
+        return Ok((n, 1));
+    }
+    if let Some(a) = v.as_array() {
+        if let [n, d] = a.as_slice() {
+            return Ok((term(n).ok_or_else(bad)?, term(d).ok_or_else(bad)?));
+        }
+        return Err(bad());
+    }
+    if let Some(sv) = v.as_str() {
+        let (n, d) = sv.split_once('/').unwrap_or((sv, "1"));
+        let n: u32 = n.trim().parse().map_err(|_| bad())?;
+        let d: u32 = d.trim().parse().map_err(|_| bad())?;
+        if n == 0 || d == 0 {
+            return Err(bad());
+        }
+        return Ok((n, d));
+    }
+    Err(bad())
 }
 
 fn make_sample_format(params: &Value, inputs: &[PortSpec]) -> Result<Box<dyn StreamFilter>> {

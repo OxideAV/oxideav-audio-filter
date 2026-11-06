@@ -75,7 +75,10 @@ impl Flanger {
                 channels,
                 lines: (0..channels).map(|_| vec![0.0; line_len]).collect(),
                 write_idx: vec![0; channels],
-                phase: 0.0,
+                // LFO phase is in radians, not samples: it carries over a
+                // mid-stream rate change; the delay line (sized in
+                // samples) restarts from silence.
+                phase: self.state.as_ref().map_or(0.0, |s| s.phase),
             });
         }
     }

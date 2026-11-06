@@ -262,8 +262,10 @@ impl CrestFactorMeter {
                 peak_deque: vec![VecDeque::with_capacity(window_samples); channels],
                 write: 0,
                 samples_seen: 0,
-                last_linear: 0.0,
-                max_linear: 0.0,
+                // The sliding window is rebuilt (its length in samples
+                // depends on the rate); the readings carry over.
+                last_linear: self.state.as_ref().map_or(0.0, |s| s.last_linear),
+                max_linear: self.state.as_ref().map_or(0.0, |s| s.max_linear),
             });
         }
     }

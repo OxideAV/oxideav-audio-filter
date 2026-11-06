@@ -66,6 +66,23 @@ impl MidSide {
 }
 
 impl AudioFilter for MidSide {
+    /// The L/R ↔ M/S matrix is defined for exactly two channels; any
+    /// other count is refused with `Error::Unsupported`. Rate and
+    /// sample-format changes adapt (the transcoder is stateless).
+    fn reconfigure(
+        &mut self,
+        _from: AudioStreamParams,
+        to: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        if to.channels != 2 {
+            return Err(Error::unsupported(format!(
+                "mid_side: requires stereo input, cannot adapt to {} channels",
+                to.channels
+            )));
+        }
+        Ok(Vec::new())
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

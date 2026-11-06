@@ -108,9 +108,15 @@ impl Chorus {
             let max_delay_samples =
                 ((self.base_delay_ms + self.depth_ms) / 1000.0 * sample_rate as f32) as usize + 4;
             let line_len = max_delay_samples.max(4);
-            let phase = (0..self.n_voices as usize)
-                .map(|v| 2.0 * std::f64::consts::PI * (v as f64) / (self.n_voices as f64))
-                .collect();
+            // LFO phases are in radians, not samples: they carry over a
+            // mid-stream rate change; the delay lines (sized in samples)
+            // restart from silence.
+            let phase = match self.state.take() {
+                Some(s) if s.phase.len() == self.n_voices as usize => s.phase,
+                _ => (0..self.n_voices as usize)
+                    .map(|v| 2.0 * std::f64::consts::PI * (v as f64) / (self.n_voices as f64))
+                    .collect(),
+            };
             self.state = Some(ChorusState {
                 sample_rate,
                 channels,

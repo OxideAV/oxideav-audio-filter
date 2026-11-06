@@ -70,6 +70,19 @@ pub struct Resample {
     /// for phase `p`.
     taps: Vec<f32>,
     state: Option<ResampleState>,
+    /// How the output rate is chosen when the input rate changes
+    /// mid-stream (see [`Resample::reconfigure`](AudioFilter::reconfigure)).
+    target: RateTarget,
+}
+
+/// Output-rate policy across mid-stream input-rate changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RateTarget {
+    /// The output rate is pinned; a new input rate re-plans the bank
+    /// so the output stays at this rate.
+    Fixed(u32),
+    /// The output rate follows the input: `dst = src · num / den`.
+    Ratio { num: u32, den: u32 },
 }
 
 /// Input-rate history depth required for the given rational ratio: enough
@@ -194,6 +207,56 @@ impl Resample {
     /// Build a new resampler. Returns `Error::Unsupported` if either rate is
     /// zero or the rate ratio leads to an unreasonable LCM.
     pub fn new(src_rate: u32, dst_rate: u32) -> Result<Self> {
+        let mut r = Self::plan(src_rate, dst_rate)?;
+        r.target = RateTarget::Fixed(dst_rate);
+        Ok(r)
+    }
+
+    /// Build a resampler whose output rate **follows** its input at the
+    /// fixed rational ratio `num / den` (`dst = src · num / den`, e.g.
+    /// `2 / 1` for 2× oversampling). Unlike [`Resample::new`], whose
+    /// output rate is pinned, a mid-stream input-rate change moves the
+    /// output rate too (and the stream-filter adapter announces it with
+    /// its own `Frame::StreamParams`). `src · num` must be divisible by
+    /// `den`, so the output rate is an integer; otherwise
+    /// `Error::Unsupported`.
+    pub fn with_ratio(src_rate: u32, num: u32, den: u32) -> Result<Self> {
+        let dst = Self::ratio_rate(src_rate, num, den)?;
+        let mut r = Self::plan(src_rate, dst)?;
+        r.target = RateTarget::Ratio { num, den };
+        Ok(r)
+    }
+
+    /// `true` when the output rate follows the input (built with
+    /// [`Resample::with_ratio`]); `false` when it is pinned
+    /// ([`Resample::new`]).
+    pub fn follows_input(&self) -> bool {
+        matches!(self.target, RateTarget::Ratio { .. })
+    }
+
+    fn ratio_rate(src_rate: u32, num: u32, den: u32) -> Result<u32> {
+        if num == 0 || den == 0 {
+            return Err(Error::unsupported("resample ratio terms must be non-zero"));
+        }
+        let prod = src_rate as u64 * num as u64;
+        if !prod.is_multiple_of(den as u64) {
+            return Err(Error::unsupported(format!(
+                "resample: {src_rate} Hz · {num}/{den} is not an integer rate"
+            )));
+        }
+        u32::try_from(prod / den as u64)
+            .map_err(|_| Error::unsupported("resample: ratio output rate overflows u32"))
+    }
+
+    /// Output rate this resampler produces for an input at `src_rate`.
+    fn dst_for(&self, src_rate: u32) -> Result<u32> {
+        match self.target {
+            RateTarget::Fixed(d) => Ok(d),
+            RateTarget::Ratio { num, den } => Self::ratio_rate(src_rate, num, den),
+        }
+    }
+
+    fn plan(src_rate: u32, dst_rate: u32) -> Result<Self> {
         if src_rate == 0 || dst_rate == 0 {
             return Err(Error::unsupported("resample rate must be non-zero"));
         }
@@ -215,6 +278,7 @@ impl Resample {
             taps_per_phase,
             taps,
             state: None,
+            target: RateTarget::Fixed(dst_rate),
         })
     }
 
@@ -365,6 +429,52 @@ impl Resample {
 }
 
 impl AudioFilter for Resample {
+    /// Rate becomes the planned output rate; channels and sample format
+    /// follow the input.
+    fn output_params(&self, input: AudioStreamParams) -> AudioStreamParams {
+        AudioStreamParams {
+            sample_rate: self.dst_for(input.sample_rate).unwrap_or(self.dst_rate),
+            ..input
+        }
+    }
+
+    /// A new input rate re-plans the polyphase bank for
+    /// `src → dst` (`dst` pinned, or following the ratio). The history
+    /// ring holds samples of the old rate, which the new bank cannot
+    /// interpret, so the old segment is **drained** first — the same
+    /// zero-padded tail [`flush`](AudioFilter::flush) emits, returned
+    /// here as old-shape frames — and the new segment starts from an
+    /// empty history. A channel-count change drains and restarts the
+    /// same way (new per-channel rings); a sample-format change alone
+    /// carries everything over (the kernel runs in `f32`).
+    fn reconfigure(
+        &mut self,
+        from: AudioStreamParams,
+        to: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        if from.sample_rate == to.sample_rate && from.channels == to.channels {
+            return Ok(Vec::new());
+        }
+        let new_dst = self.dst_for(to.sample_rate)?;
+        // Plan first so an unsupported ratio leaves the old plan intact.
+        let replanned = if to.sample_rate != self.src_rate || new_dst != self.dst_rate {
+            Some(Self::plan(to.sample_rate, new_dst)?)
+        } else {
+            None
+        };
+        let tail = self.flush(from)?;
+        if let Some(p) = replanned {
+            self.src_rate = p.src_rate;
+            self.dst_rate = p.dst_rate;
+            self.up = p.up;
+            self.down = p.down;
+            self.taps_per_phase = p.taps_per_phase;
+            self.taps = p.taps;
+        }
+        self.state = None;
+        Ok(tail)
+    }
+
     /// The symmetric windowed-sinc prototype has
     /// `2·HALF_ZERO_CROSSINGS·max(up, down) + 1` taps at the
     /// L-rate (`fs·up`), so its group delay is

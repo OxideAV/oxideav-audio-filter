@@ -268,10 +268,12 @@ impl StereoBalanceMeter {
                 qy: 0.0,
                 write: 0,
                 samples_seen: 0,
-                last: 0.0,
-                last_rms_l: 0.0,
-                last_rms_r: 0.0,
-                max_abs: 0.0,
+                // The sliding window is rebuilt (its length in samples
+                // depends on the rate); the readings carry over.
+                last: self.state.as_ref().map_or(0.0, |s| s.last),
+                last_rms_l: self.state.as_ref().map_or(0.0, |s| s.last_rms_l),
+                last_rms_r: self.state.as_ref().map_or(0.0, |s| s.last_rms_r),
+                max_abs: self.state.as_ref().map_or(0.0, |s| s.max_abs),
             });
         }
     }

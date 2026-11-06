@@ -433,7 +433,7 @@ pub use white_noise::WhiteNoise;
 pub use window::Window as WindowFunction;
 pub use zero_crossing_rate::ZeroCrossingRateMeter;
 
-use oxideav_core::{AudioFrame, Result, SampleFormat};
+use oxideav_core::{AudioFrame, CodecParameters, Result, SampleFormat};
 
 /// Stream-level parameters threaded into every [`AudioFilter`] call.
 ///
@@ -443,11 +443,33 @@ use oxideav_core::{AudioFrame, Result, SampleFormat};
 /// [`AudioFilterAdapter`](crate::registry) shim reads them once from
 /// the input port spec at construction and re-supplies them per call so
 /// concrete filters don't have to negotiate per-frame.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioStreamParams {
     pub format: SampleFormat,
     pub channels: u16,
     pub sample_rate: u32,
+}
+
+impl AudioStreamParams {
+    /// Fold the audio facts of a stream's [`CodecParameters`] (typically the
+    /// payload of a [`Frame::StreamParams`](oxideav_core::Frame::StreamParams)
+    /// event) over `self`. Fields the parameters leave unset (`None`, or a
+    /// zero rate / channel count) keep their current value, so an event
+    /// that only announces a new sample rate leaves the channel count and
+    /// sample format alone.
+    pub fn merged_with(self, params: &CodecParameters) -> Self {
+        Self {
+            format: params.sample_format.unwrap_or(self.format),
+            channels: params
+                .resolved_channels()
+                .filter(|c| *c > 0)
+                .unwrap_or(self.channels),
+            sample_rate: params
+                .sample_rate
+                .filter(|r| *r > 0)
+                .unwrap_or(self.sample_rate),
+        }
+    }
 }
 
 /// Constructor parameter hygiene shared by the filter family.
@@ -529,5 +551,59 @@ pub trait AudioFilter: Send {
     /// measured impulse/step response in `tests/latency.rs`.
     fn latency_samples(&self, _params: AudioStreamParams) -> usize {
         0
+    }
+
+    /// Shape of the stream this filter emits for an input of shape
+    /// `input`.
+    ///
+    /// The default is the identity: the filter preserves sample rate,
+    /// channel count and sample format. Shape-changing filters override
+    /// it — [`Resample`] (output rate), [`FormatConvert`] (output
+    /// format), [`Crossover`] (`2×` channels), [`DownmixFilter`]
+    /// (destination layout's channel count).
+    fn output_params(&self, input: AudioStreamParams) -> AudioStreamParams {
+        input
+    }
+
+    /// Re-plan for a mid-stream change of the input shape from `from`
+    /// to `to` — the [`Frame::StreamParams`](oxideav_core::Frame::StreamParams)
+    /// event of the `StreamFilter` contract. Called before the first
+    /// frame of the new shape; every later `process` / `flush` call
+    /// receives `to`.
+    ///
+    /// Returns frames of the **old** output shape the filter still
+    /// held (a resampler's filter tail); the caller emits them before
+    /// announcing the new shape. Returns [`Error::Unsupported`](oxideav_core::Error::Unsupported)
+    /// when the filter cannot adapt (a fixed channel map facing a new
+    /// channel count).
+    ///
+    /// The default returns no frames and relies on the filter's own
+    /// per-call shape tracking: every rate- or channel-dependent filter
+    /// in this crate compares the `params` it is handed against the
+    /// shape its coefficients / state were built for, and re-derives
+    /// them on the first `process` call of the new shape. The state
+    /// rule at that boundary is documented crate-wide (see the README's
+    /// "Mid-stream shape changes" section):
+    ///
+    /// * coefficients derived from the sample rate (biquad / shelf /
+    ///   SVF / emphasis / crossover sections, attack / release / hold
+    ///   time constants, LFO phase increments, window lengths) are
+    ///   recomputed for the new rate;
+    /// * signal-domain state whose meaning does not depend on the rate
+    ///   (IIR filter memories, detector envelopes and gain levels,
+    ///   meter maxima / counters / integrated sums, LFO phase) carries
+    ///   over;
+    /// * state measured in samples whose length depends on the rate
+    ///   (delay lines, sliding windows, look-ahead / FIR histories of a
+    ///   rate-dependent length) is rebuilt and restarts from silence;
+    /// * on a channel-count change per-channel state restarts from
+    ///   silence (there is no meaningful mapping of old channel `i`
+    ///   onto the new layout); cross-channel readings carry over.
+    fn reconfigure(
+        &mut self,
+        _from: AudioStreamParams,
+        _to: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        Ok(Vec::new())
     }
 }

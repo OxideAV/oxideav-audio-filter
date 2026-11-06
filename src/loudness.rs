@@ -184,6 +184,13 @@ struct LoudnessState {
     sum_sq: Vec<f64>,
     /// Number of samples accumulated.
     n_samples: u64,
+    /// Channel-weighted sum of squares folded in from earlier stream
+    /// shapes (before a mid-stream rate / channel-count change),
+    /// expressed in current-rate sample units.
+    carried: f64,
+    /// Time-weighted sample count of the mean, in current-rate sample
+    /// units (equals `n_samples` until the rate changes).
+    den: f64,
     /// Per-channel filter state.
     filt: Vec<KState>,
 }
@@ -203,6 +210,33 @@ impl LoudnessITU {
         };
         if needs {
             let fs = sample_rate.max(1) as f64;
+            // Mid-stream shape change: the K-weighting coefficients are
+            // re-derived for the new rate, and the measurement so far
+            // carries over. The integrated mean square is a time
+            // average, so the accumulated (channel-weighted) energy and
+            // the sample count are rescaled to new-rate sample units —
+            // `new_fs / old_fs` — keeping every second of programme
+            // equally weighted on both sides of the switch. The filter
+            // memories carry over when the channel count is unchanged.
+            let old = self.state.take();
+            let (carried, den, n_samples, filt) = match old {
+                Some(s) => {
+                    let r = fs / s.sample_rate.max(1) as f64;
+                    let folded = s.carried
+                        + s.sum_sq
+                            .iter()
+                            .zip(&s.weights)
+                            .map(|(e, w)| e * *w as f64)
+                            .sum::<f64>();
+                    let filt = if s.channels == channels {
+                        s.filt
+                    } else {
+                        vec![KState::default(); channels]
+                    };
+                    (folded * r, s.den * r, s.n_samples, filt)
+                }
+                None => (0.0, 0.0, 0, vec![KState::default(); channels]),
+            };
             self.state = Some(LoudnessState {
                 sample_rate,
                 channels,
@@ -210,8 +244,10 @@ impl LoudnessITU {
                 rlb: rlb_filter(fs),
                 weights: channel_weights(channels),
                 sum_sq: vec![0.0; channels],
-                n_samples: 0,
-                filt: vec![KState::default(); channels],
+                n_samples,
+                carried,
+                den,
+                filt,
             });
         }
     }
@@ -227,6 +263,8 @@ impl LoudnessITU {
                 *f = KState::default();
             }
             s.n_samples = 0;
+            s.carried = 0.0;
+            s.den = 0.0;
         }
     }
 
@@ -237,12 +275,12 @@ impl LoudnessITU {
         let Some(s) = self.state.as_ref() else {
             return f32::NEG_INFINITY;
         };
-        if s.n_samples == 0 {
+        if s.n_samples == 0 || s.den <= 0.0 {
             return f32::NEG_INFINITY;
         }
-        let mut weighted_ms = 0.0f64;
+        let mut weighted_ms = s.carried / s.den;
         for ch in 0..s.channels {
-            let mean_sq = s.sum_sq[ch] / s.n_samples as f64;
+            let mean_sq = s.sum_sq[ch] / s.den;
             weighted_ms += s.weights[ch] as f64 * mean_sq;
         }
         if weighted_ms <= 0.0 {
@@ -295,6 +333,7 @@ impl AudioFilter for LoudnessITU {
             state.sum_sq[ch_idx] += sum_sq;
         }
         state.n_samples += n as u64;
+        state.den += n as f64;
 
         // Pass-through: emit input unchanged. We can't easily clone
         // the AudioFrame's payload by reference (no borrow there),

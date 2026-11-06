@@ -200,7 +200,9 @@ impl UpwardCompressor {
                 sample_rate,
                 alpha_atk: time_constant_alpha(self.attack_ms, sample_rate),
                 alpha_rel: time_constant_alpha(self.release_ms, sample_rate),
-                env: 0.0,
+                // Rate change: the detector envelope is a level, so it
+                // carries over; only the time constants are re-derived.
+                env: self.state.as_ref().map_or(0.0, |s| s.env),
             });
         }
     }

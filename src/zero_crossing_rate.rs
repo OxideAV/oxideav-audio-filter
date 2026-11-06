@@ -276,7 +276,9 @@ impl ZeroCrossingRateMeter {
                 samples_seen: 0,
                 pairs_seen: 0,
                 last_count: 0,
-                max_fraction: 0.0,
+                // The sliding window is rebuilt (its length in samples
+                // depends on the rate); the peak reading carries over.
+                max_fraction: self.state.as_ref().map_or(0.0, |s| s.max_fraction),
             });
         }
     }

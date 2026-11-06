@@ -7,8 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Frame::StreamParams` across every stream filter** (oxideav-core
+  0.1.43 contract): an upstream sample-rate / channel-count /
+  sample-format change re-plans the filter. Shape-transparent filters
+  (effects, meters) forward the event unchanged; shape-changing filters
+  (`resample`, `sample_format`, `crossover`, `downmix`) emit their own
+  event only when their output shape changes; `mid_side` (≠ 2 channels)
+  and `downmix` (channel count ≠ source layout) refuse with
+  `Error::Unsupported`. `spectrogram` forwards on its audio port and
+  keeps its video shape (cadence re-anchored, time base unchanged).
+- `AudioFilter::output_params` and `AudioFilter::reconfigure` (defaulted
+  trait methods) and `AudioStreamParams::merged_with(&CodecParameters)`;
+  `AudioStreamParams` derives `PartialEq` / `Eq`.
+- `Resample::with_ratio(src, num, den)` / `Resample::follows_input`, and
+  the registry's `resample` `"ratio"` key (`2`, `[num, den]`,
+  `"num/den"`): an output rate that follows the input. A pinned
+  (`"rate"`) resampler re-plans for a new input rate with no output
+  event; both drain the old segment's tail at the boundary.
+- `tests/stream_params.rs`: 44.1 → 48 kHz through EQ / biquad / pinned
+  and following resampler / meters, mono ↔ stereo, refusals, the
+  spectrogram, and a sweep of every registered filter through rate,
+  format and channel changes checking each emitted frame and event
+  against the declared output port.
+
 ### Changed
 
+- Mid-stream rate changes now **carry over** rate-independent state
+  instead of resetting it: compressor / expander / upward compressor /
+  upward expander / parallel compressor / envelope follower envelopes,
+  limiter gain + look-ahead line, adaptive-gate envelopes, LFO phases
+  (chorus / flanger / vibrato / phaser), meter readings (true-peak max +
+  overs + FIR history, crest / DC-offset / ZCR / correlation / balance
+  maxima, silence-detector state), and `loudness_itu`'s integrated
+  measurement (rescaled to keep it a time average). Rules in the
+  README's "Mid-stream shape changes" section.
+- `Spectrogram::reset` keeps the configured fps and input shape (it used
+  to fall back to the 48 kHz / 30 fps placeholders).
 - edition 2024, MSRV 1.95.
 
 ### Changed

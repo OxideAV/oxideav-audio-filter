@@ -124,10 +124,12 @@ impl EnvelopeFollower {
             None => true,
         };
         if rebuild {
+            // Rate change: the envelope is a level, so it carries over.
+            let (env, last) = self.state.as_ref().map_or((0.0, 0.0), |s| (s.env, s.last));
             self.state = Some(DetectorState {
                 sample_rate,
-                env: 0.0,
-                last: 0.0,
+                env,
+                last,
             });
         }
     }

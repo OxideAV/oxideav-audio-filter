@@ -120,6 +120,18 @@ impl Equalizer {
 }
 
 impl AudioFilter for Equalizer {
+    /// Adopts the new rate: every band recomputes its coefficients on
+    /// the next block; band filter memories carry over (see the crate
+    /// rule on [`AudioFilter::reconfigure`]).
+    fn reconfigure(
+        &mut self,
+        _from: AudioStreamParams,
+        to: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        self.sample_rate = to.sample_rate.max(1);
+        Ok(Vec::new())
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

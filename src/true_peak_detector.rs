@@ -277,12 +277,25 @@ impl TruePeakDetector {
             None => true,
         };
         if rebuild {
+            // The oversampling FIR is defined relative to the input rate
+            // (fixed 4× phases), so a rate change keeps everything; the
+            // readings (`max_dbtp`, `overs`) always carry over and the
+            // per-channel FIR histories restart only when the channel
+            // count changes.
+            let old = self.state.take();
+            let (last_linear, max_linear, overs) = old
+                .as_ref()
+                .map_or((0.0, 0.0, 0), |s| (s.last_linear, s.max_linear, s.overs));
+            let delays = match old {
+                Some(s) if s.delays.len() == channels => s.delays,
+                _ => vec![vec![0.0; self.taps_per_phase]; channels],
+            };
             self.state = Some(DetectorState {
                 sample_rate,
-                delays: vec![vec![0.0; self.taps_per_phase]; channels],
-                last_linear: 0.0,
-                max_linear: 0.0,
-                overs: 0,
+                delays,
+                last_linear,
+                max_linear,
+                overs,
             });
         }
     }

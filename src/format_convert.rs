@@ -115,6 +115,15 @@ impl FormatConvert {
 }
 
 impl AudioFilter for FormatConvert {
+    /// The sample format is pinned to the target; rate and channel count
+    /// follow the input (stateless, so `reconfigure` needs nothing).
+    fn output_params(&self, input: AudioStreamParams) -> AudioStreamParams {
+        AudioStreamParams {
+            format: self.target,
+            ..input
+        }
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

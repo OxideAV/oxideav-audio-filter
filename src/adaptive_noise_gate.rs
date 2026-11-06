@@ -142,10 +142,14 @@ impl AdaptiveNoiseGate {
     }
 
     fn ensure_state(&mut self, sample_rate: u32, channels: usize) {
-        if self.state.len() != channels || self.sample_rate != sample_rate {
+        // Channel-count change: per-channel envelopes restart. Rate
+        // change alone: the envelopes / gain are levels and carry over
+        // (the one-pole coefficients are derived from `sample_rate` per
+        // block).
+        if self.state.len() != channels {
             self.state = vec![ChState::default(); channels];
-            self.sample_rate = sample_rate;
         }
+        self.sample_rate = sample_rate;
     }
 }
 

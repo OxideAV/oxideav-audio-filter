@@ -99,7 +99,9 @@ impl Phaser {
                 channels,
                 sections,
                 last_wet: vec![0.0; channels],
-                phase: 0.0,
+                // LFO phase is in radians, not samples: it carries over a
+                // mid-stream rate change (the increment is per-block).
+                phase: self.state.as_ref().map_or(0.0, |s| s.phase),
             });
         }
     }

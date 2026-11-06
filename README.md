@@ -76,6 +76,57 @@ Part of the [oxideav](https://github.com/OxideAV/oxideav-workspace) framework �
 - **window** (`WindowFunction`) — reusable FIR analysis-window catalogue gathering the full closed-form family from `docs/audio/filter/wikipedia-window-function.html` in one place (previously the spectrogram hard-coded a three-case Hann / Hamming / Blackman switch and the resampler / true-peak detector each grew their own one-off Kaiser taper). Variants: `Rectangular`, `Triangular` (Bartlett, 1st-order B-spline), `Welch` (single parabolic section `w[n] = 1 − ((n − N/2)/(N/2))²`, endpoint-nulling — the canonical window of Welch's periodogram-averaging PSD estimate), `Parzen` (4th-order B-spline / de la Vallée Poussin, the smoothest piecewise-cubic polynomial taper, `2·(1/L)³` endpoints), `Hann`, `Hamming` (optimal `a = [0.53836, 0.46164]`), `Blackman` (classic `α = 0.16`), `BlackmanExact` (rational `7938/18608` …, non-nulling endpoints), `Nuttall`, `BlackmanNuttall`, `BlackmanHarris`, `FlatTop` (five-term cosine sum, minimal scalloping loss, partially negative), `Sine` / cosine / half-sine, `Lanczos` (`sinc(2n/N − 1)`), and the parameterised adjustable windows `Gaussian(σ)` (`σ ≤ 0.5`), `Tukey(α)` (`α = 0 ≡` rectangular, `α = 1 ≡` Hann), `Kaiser(β)` (`I₀(β·√(1 − r²)) / I₀(β)`, local `f64` Bessel-`I₀` series). General alternating cosine-sum form `w[n] = a0 − a1·cos(2πn/N) + a2·cos(4πn/N) − …` on the symmetric `N = L − 1` convention (matching the spectrogram's existing `denom = n − 1`). API: `value(n, len)` / `generate(len)` / `generate_f32(len)` plus the `coherent_gain` (DC amplitude correction) and `equivalent_noise_bandwidth` (ENBW in DFT bins; rectangular = 1, Hann → 1.5, Blackman / flat-top progressively wider) metrics. The polynomial B-spline family widens its ENBW with spline order: rectangular 1.0 < Welch ≈ 1.20 < Triangular ≈ 1.34 < Parzen ≈ 1.92. Pure utility — not an `AudioFilter`, no registry entry.
 - **frac_delay** (`FracDelayLine`) — per-channel ring buffer read at arbitrary *fractional* (between-sample) delays, with the reconstruction kernel chosen at construction. This is the bandlimited-interpolation problem stated in `docs/audio/filter/jos-bandlimited-interpolation.html` / `jos-theory-of-sample-rate-conversion.html` / `jos-resample.html`: a signal bandlimited to `Fs/2` is, by Shannon's sampling theorem, uniquely recoverable at any continuous time `p` from its samples (`x(t) = Σ x(nTs)·hₛ(t − nTs)` with `hₛ` the normalised sinc). Time-varying delay effects (`chorus` / `flanger` / `vibrato` / `pitch_shift`, Doppler, comb resonators) all need such reads and currently each hand-roll a two-tap linear blend; this primitive gathers the kernel family in one place. `Interp` variants: `Linear` (two-tap `(1 − f)·x[i] + f·x[i+1]`; cheapest, treble roll-off deepest at `f = 0.5`); `Hermite` (four-tap C¹ Catmull–Rom cubic — centred-difference tangents, markedly flatter passband for one extra tap pair); `Lagrange(n)` (the order-`n` polynomial through the `n + 1` nearest taps via the product Lagrange basis `Lⱼ(x) = Πₘ≠ⱼ (x − xₘ)/(xⱼ − xₘ)`; `n = 1` reduces to `Linear`, `n = 3` is the cubic-Lagrange the reference relates to a truncated sinc, clamped to `[1, 8]` since high-order equally-spaced interpolation is ill-conditioned); and `Sinc { half_taps, beta }` (the most faithful — windowed-sinc reconstruction `Σ x[k]·sinc(p − k)` truncated to `2·half_taps` neighbours and Kaiser-tapered via `window::Window::Kaiser` to suppress truncation ripple, DC-normalised so a constant input reconstructs exactly, `half_taps` clamped to `[1, 32]`). Newest-boundary reads use edge extension (clamp to the most recent sample) so a kernel reaching one or two taps past the head degrades gracefully instead of injecting a spurious zero; `max_delay()` reports the largest delay readable without the kernel running off the buffered history (`capacity − 1 − reach`, where `reach` grows with kernel width). All four kernels reproduce a constant DC and a pure integer delay exactly; `Lagrange(3)` is verified exact on a quadratic; `Sinc(16, β=9)` tracks an 8 kHz sine ≥ 4× more faithfully than linear at the worst-case `f = 0.5`. Pure utility — not an `AudioFilter`, no registry entry; mirrors the `window` catalogue.
 
+## Mid-stream shape changes (`Frame::StreamParams`)
+
+Every registered filter handles the in-band `Frame::StreamParams` event of
+`oxideav-core`'s `StreamFilter` contract — an upstream change of sample rate,
+channel count or sample format announced before the first frame of the new
+shape. The event folds into the filter's stream shape (fields the event leaves
+unset keep their value), `AudioFilter::reconfigure` re-plans the filter, and the
+output side follows one rule:
+
+- **Shape-transparent filters** (every per-sample effect, every meter — output
+  shape = input shape) **forward the event unchanged**.
+- **Shape-changing filters** emit **their own** event (the incoming parameters
+  with the output's rate / channels / format written over them) **only when
+  their output shape changes**, before the first frame of the new shape:
+  - `resample` with `"rate"` pins the output rate: a 44.1 → 48 kHz input
+    switch re-plans the polyphase bank and emits **no** output event (a
+    channel-count change still does — channels follow the input). With
+    `"ratio"` (`2`, `[num, den]` or `"num/den"`; `Resample::with_ratio`) the
+    output rate follows the input (`dst = src · num / den`) and every input
+    rate change is announced. The old segment's filter tail is drained (as
+    old-shape frames, ahead of the event) and the new segment starts from an
+    empty history.
+  - `sample_format` pins the format: an input-format change alone is silent; a
+    rate or channel change is announced with the pinned format.
+  - `crossover` announces `2 ×` the new channel count; `downmix` the new rate.
+- **Refusals** (`Error::Unsupported`, previous shape kept): `mid_side` for any
+  channel count ≠ 2, `downmix` for a channel count other than its source
+  layout's, `resample` `"ratio"` when the new output rate would not be an
+  integer.
+- `spectrogram` forwards the event on its audio port; its video port keeps its
+  shape (size, RGB24, time base) and emits nothing. A rate change re-anchors
+  the video cadence at the next frame's pts (frame interval stays
+  `1 / fps` s) and drops the partial FFT block.
+
+State at the boundary:
+
+| state | rule | filters |
+|---|---|---|
+| rate-derived coefficients (biquad / shelf / SVF / emphasis / crossover sections, time constants, LFO increments, window lengths) | recomputed for the new rate | all rate-dependent filters |
+| IIR filter memories | carry over | `biquad`, `equalizer`, `svf`, `pre_emphasis`, `de_emphasis`, `hum_filter`, `crossover`, `de_esser`, `exciter`, `multiband_compressor`, `stereo_imager`, `talkbox`, `wah`, `dc_blocker`, `loudness_itu` (K-weighting) |
+| detector envelopes, gain levels | carry over (no gain jump) | `compressor`, `parallel_compressor`, `expander`, `upward_compressor`, `upward_expander`, `noise_gate`, `adaptive_noise_gate`, `envelope_follower`, `ducker`, `gain_normalizer`, `transient_designer`, `limiter`, `silence_detector` |
+| meter readings (maxima, counters, integrated sums) | carry over | `true_peak_detector`, `crest_factor_meter`, `dc_offset_meter`, `zero_crossing_rate`, `stereo_correlation_meter`, `stereo_balance_meter`, `silence_detector`; `loudness_itu` rescales its integrated energy to new-rate sample units so every second weighs the same on both sides |
+| fixed-sample-count histories | carry over | `limiter` look-ahead line, `true_peak_detector` 4× FIR, `freq_shifter` Hilbert FIR, `median_filter` window |
+| LFO phase (radians) | carries over | `tremolo`, `auto_pan`, `ring_modulator`, `wah`, `talkbox`, `freq_shifter`, `chorus`, `flanger`, `vibrato`, `phaser` |
+| rate-length delay lines / sliding windows | rebuilt, restart from silence | `echo`, `chorus`, `flanger`, `vibrato`, `reverb`, `comb_filter`, `crossfeed`, `phaser` all-pass chain, meter windows |
+| per-channel state on a channel-count change | restarts from silence; cross-channel readings carry over | all |
+
+Rate-independent filters (`volume`, `hard_clipper`, `tape_saturation`,
+`bitcrusher`, `octave_doubler`, `stereo_widener`, `dither`, the noise
+generators) only re-read the new shape.
+
 ## Usage
 
 ```toml

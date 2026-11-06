@@ -105,21 +105,34 @@ impl Limiter {
                 let n = self.release_ms / 1000.0 * sample_rate as f32;
                 (-1.0 / n.max(1.0)).exp()
             };
+            // Rate change with the same channel count: the look-ahead
+            // is a fixed sample count, so the delay lines (with the
+            // audio still in flight) and the gain envelope carry over;
+            // only the release coefficient is re-derived. A channel-
+            // count change restarts the delay lines from silence.
+            let old = self.state.take();
+            let env_gain = old.as_ref().map_or(1.0, |s| s.env_gain);
+            let kept = match old {
+                Some(s) if s.channels == channels => Some(s.delays),
+                _ => None,
+            };
             self.state = Some(LimiterState {
                 sample_rate,
                 channels,
                 ceiling_lin,
                 alpha_rel,
-                delays: (0..channels)
-                    .map(|_| {
-                        let mut q = VecDeque::with_capacity(self.look_ahead_samples + 1);
-                        for _ in 0..self.look_ahead_samples {
-                            q.push_back(0.0);
-                        }
-                        q
-                    })
-                    .collect(),
-                env_gain: 1.0,
+                delays: kept.unwrap_or_else(|| {
+                    (0..channels)
+                        .map(|_| {
+                            let mut q = VecDeque::with_capacity(self.look_ahead_samples + 1);
+                            for _ in 0..self.look_ahead_samples {
+                                q.push_back(0.0);
+                            }
+                            q
+                        })
+                        .collect()
+                }),
+                env_gain,
             });
         }
     }

@@ -228,6 +228,36 @@ impl DownmixFilter {
 }
 
 impl AudioFilter for DownmixFilter {
+    /// Destination layout's channel count; rate and format follow the
+    /// input.
+    fn output_params(&self, input: AudioStreamParams) -> AudioStreamParams {
+        AudioStreamParams {
+            channels: self.dst.channel_count(),
+            ..input
+        }
+    }
+
+    /// The mixing matrix is built for one source layout, so a new input
+    /// channel count has no meaningful mapping onto it: refused with
+    /// `Error::Unsupported` (rebuild the filter for the new layout).
+    /// Rate and sample-format changes adapt (the matrix is
+    /// rate-independent; the binaural ITD shifts are whole-sample
+    /// offsets kept as built).
+    fn reconfigure(
+        &mut self,
+        _from: AudioStreamParams,
+        to: AudioStreamParams,
+    ) -> Result<Vec<AudioFrame>> {
+        if to.channels != self.src.channel_count() {
+            return Err(Error::unsupported(format!(
+                "downmix: matrix is fixed to a {}-channel source; cannot adapt to {} channels",
+                self.src.channel_count(),
+                to.channels
+            )));
+        }
+        Ok(Vec::new())
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

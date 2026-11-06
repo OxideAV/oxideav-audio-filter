@@ -116,12 +116,25 @@ impl SilenceDetector {
             None => true,
         };
         if needs_rebuild {
+            // Rate change: the envelopes are levels and the hold timer
+            // runs in milliseconds, so everything carries over. Channel-
+            // count change: per-channel envelopes restart; the silence
+            // decision and hold timer carry over.
+            let old = self.state.take();
+            let (elapsed_below_ms, is_silent, last_db) =
+                old.as_ref().map_or((0.0, false, -120.0), |s| {
+                    (s.elapsed_below_ms, s.is_silent, s.last_db)
+                });
+            let env = match old {
+                Some(s) if s.env.len() == channels => s.env,
+                _ => vec![0.0; channels],
+            };
             self.state = Some(DetectorState {
                 sample_rate,
-                env: vec![0.0; channels],
-                elapsed_below_ms: 0.0,
-                is_silent: false,
-                last_db: -120.0,
+                env,
+                elapsed_below_ms,
+                is_silent,
+                last_db,
             });
         }
     }

@@ -461,8 +461,17 @@ impl Spectrogram {
         // (The slimmed AudioFrame no longer carries a per-frame
         // override path.)
         ss.input_time_base = TimeBase::new(1, ss.input_sample_rate as i64);
+        self.apply_shape();
+    }
+
+    /// Re-derive the video cadence (samples per video frame, pts step in
+    /// the fixed `input_time_base`) and the port descriptors from the
+    /// current input shape.
+    fn apply_shape(&mut self) {
+        let ss = &mut self.stream;
         ss.samples_per_video_frame = ss.input_sample_rate.max(ss.video_fps) / ss.video_fps.max(1);
-        ss.next_emit_at = ss.samples_per_video_frame as u64;
+        ss.next_emit_at =
+            (ss.emitted_video_frames.max(0) as u64 + 1) * ss.samples_per_video_frame as u64;
         ss.pts_step_in_tb = pts_step_for_tb(
             ss.samples_per_video_frame as u64,
             ss.input_sample_rate as u64,
@@ -490,6 +499,57 @@ impl Spectrogram {
             ),
         ];
     }
+
+    /// Mid-stream input shape change (`Frame::StreamParams`).
+    ///
+    /// The audio pass-through port forwards the event unchanged. The
+    /// video port's shape (`width × height` RGB24 in the audio stream's
+    /// time base) does not depend on the audio shape, so it emits no
+    /// event: on a rate change the cadence is re-anchored at the next
+    /// video frame's pts — the samples already counted toward it are
+    /// rescaled to the new rate, so the frame interval stays
+    /// `1 / video_fps` seconds and the pts timeline stays continuous —
+    /// and the pending partial FFT block is dropped (a block that
+    /// straddles two rates has no single frequency axis). Columns
+    /// already analysed stay on the rolling display. Channel-count and
+    /// sample-format changes only change how input frames are decoded
+    /// (the analysis runs on the mono mix).
+    fn on_stream_params(
+        &mut self,
+        ctx: &mut dyn FilterContext,
+        cp: &CodecParameters,
+    ) -> Result<()> {
+        let ss = &mut self.stream;
+        let new_rate = cp
+            .sample_rate
+            .filter(|r| *r > 0)
+            .unwrap_or(ss.input_sample_rate);
+        let new_channels = cp
+            .resolved_channels()
+            .filter(|c| *c > 0)
+            .unwrap_or(ss.input_channels);
+        let new_format = cp.sample_format.unwrap_or(ss.input_format);
+        if new_rate != ss.input_sample_rate {
+            if ss.initialized {
+                let old_rate = ss.input_sample_rate.max(1) as u64;
+                let consumed =
+                    ss.emitted_video_frames.max(0) as u64 * ss.samples_per_video_frame as u64;
+                let residual = ss.samples_elapsed.saturating_sub(consumed);
+                ss.base_pts_in_tb = ss
+                    .base_pts_in_tb
+                    .saturating_add(ss.emitted_video_frames.saturating_mul(ss.pts_step_in_tb));
+                ss.emitted_video_frames = 0;
+                ss.samples_elapsed = residual * new_rate as u64 / old_rate;
+            }
+            ss.input_sample_rate = new_rate;
+            self.pending.clear();
+        }
+        let ss = &mut self.stream;
+        ss.input_channels = new_channels;
+        ss.input_format = new_format;
+        self.apply_shape();
+        ctx.emit(0, Frame::StreamParams(Box::new(cp.clone())))
+    }
 }
 
 impl StreamFilter for Spectrogram {
@@ -506,6 +566,9 @@ impl StreamFilter for Spectrogram {
             return Err(Error::invalid(format!(
                 "spectrogram: unknown input port {port}"
             )));
+        }
+        if let Some(cp) = frame.stream_params() {
+            return self.on_stream_params(ctx, cp);
         }
         let Frame::Audio(audio) = frame else {
             return Err(Error::invalid(
@@ -559,11 +622,19 @@ impl StreamFilter for Spectrogram {
         // port descriptors we already published stay valid (sample
         // rate / channels / format don't change across a seek), so we
         // keep `initialized=false` to force re-anchoring from the next
-        // frame's pts.
+        // frame's pts. The configured shape (fps, input rate / channels /
+        // format / time base — possibly moved by a `StreamParams` event)
+        // survives the reset.
         self.pending.clear();
         self.columns.clear();
-        let opts = self.opts.clone();
-        self.stream = StreamState::new(&opts);
+        let old = std::mem::replace(&mut self.stream, StreamState::new(&self.opts));
+        let ss = &mut self.stream;
+        ss.video_fps = old.video_fps;
+        ss.input_sample_rate = old.input_sample_rate;
+        ss.input_channels = old.input_channels;
+        ss.input_format = old.input_format;
+        ss.input_time_base = old.input_time_base;
+        self.apply_shape();
         Ok(())
     }
 }

@@ -183,6 +183,14 @@ impl Crossover {
 }
 
 impl AudioFilter for Crossover {
+    /// `[low_chans…, high_chans…]`: twice the input channel count.
+    fn output_params(&self, input: AudioStreamParams) -> AudioStreamParams {
+        AudioStreamParams {
+            channels: input.channels.saturating_mul(2),
+            ..input
+        }
+    }
+
     fn process(
         &mut self,
         input: &AudioFrame,

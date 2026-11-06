@@ -287,8 +287,10 @@ impl StereoCorrelationMeter {
                 sxy: 0.0,
                 write: 0,
                 samples_seen: 0,
-                last: 0.0,
-                min: f32::INFINITY,
+                // The sliding window is rebuilt (its length in samples
+                // depends on the rate); the readings carry over.
+                last: self.state.as_ref().map_or(0.0, |s| s.last),
+                min: self.state.as_ref().map_or(f32::INFINITY, |s| s.min),
             });
         }
     }

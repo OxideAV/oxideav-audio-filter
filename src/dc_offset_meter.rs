@@ -279,9 +279,14 @@ impl DcOffsetMeter {
                 sum: vec![0.0; channels],
                 write: 0,
                 samples_seen: 0,
-                last_means: vec![0.0; channels],
-                last_linked: 0.0,
-                max_abs: 0.0,
+                // The sliding window is rebuilt (its length in samples
+                // depends on the rate); the readings carry over.
+                last_means: match self.state.as_ref() {
+                    Some(s) if s.last_means.len() == channels => s.last_means.clone(),
+                    _ => vec![0.0; channels],
+                },
+                last_linked: self.state.as_ref().map_or(0.0, |s| s.last_linked),
+                max_abs: self.state.as_ref().map_or(0.0, |s| s.max_abs),
             });
         }
     }

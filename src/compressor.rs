@@ -251,8 +251,15 @@ impl Compressor {
                 sample_rate,
                 alpha_atk: time_constant_alpha(self.attack_ms, sample_rate),
                 alpha_rel: time_constant_alpha(self.release_ms, sample_rate),
-                env: 0.0,
-                prev_out: Vec::new(),
+                // Rate change: the detector envelope is a level, not a
+                // sample count, so it carries over (no gain jump at the
+                // boundary); only the time constants are re-derived.
+                env: self.state.as_ref().map_or(0.0, |s| s.env),
+                prev_out: self
+                    .state
+                    .as_mut()
+                    .map(|s| std::mem::take(&mut s.prev_out))
+                    .unwrap_or_default(),
             });
         }
     }
