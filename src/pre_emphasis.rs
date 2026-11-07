@@ -220,6 +220,7 @@ use oxideav_core::{AudioFrame, Result};
 /// first-order shelving curves; `Riaa3180_318_75` is the three-time-constant
 /// second-order phonograph record curve.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Curve {
     /// FM broadcast pre-emphasis used in Europe (CCIR system), 50 µs.
     Fm50us,

@@ -44,6 +44,7 @@ use std::f64::consts::PI;
 /// `Kaiser`) carry the single shape parameter the staged reference
 /// names.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Window {
     /// All-ones window. `w[n] = 1`.
     Rectangular,

@@ -78,6 +78,7 @@ use oxideav_core::{AudioFrame, Result};
 /// All variants are derived from the bilinear transform of their analog
 /// prototypes; see the module docs.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum BiquadKind {
     /// 2-pole low-pass (Butterworth-style when `Q = 1/√2 ≈ 0.707`).
     LowPass { cutoff_hz: f32, q: f32 },

@@ -56,6 +56,7 @@ use oxideav_core::{AudioFrame, Result};
 /// Values are typical male-voice averages from the Hillenbrand
 /// dataset, rounded to the nearest 25 Hz.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Vowel {
     /// "ah" as in "father" (F1 ≈ 730, F2 ≈ 1100).
     Ah,

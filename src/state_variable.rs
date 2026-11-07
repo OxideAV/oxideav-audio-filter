@@ -90,6 +90,7 @@ use oxideav_core::{AudioFrame, Result};
 
 /// Which of the four canonical SVF taps to emit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SvfMode {
     /// Low-pass output `lp[n]`. −12 dB/oct rolloff above `f_c`.
     LowPass,

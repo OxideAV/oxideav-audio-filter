@@ -144,6 +144,7 @@ const DAMPING_CLAMP: f32 = 0.999;
 
 /// Comb filter topology.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum CombMode {
     /// Feedforward FIR comb: `y[n] = x[n] + g · x[n − D]`.
     ///

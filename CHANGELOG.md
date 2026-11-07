@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The public option enums `BiquadKind`, `Vowel`, `DitherMode`, `NoiseShaping`, `Window`, `CombMode`, `SvfMode` and `pre_emphasis::Curve` are now `#[non_exhaustive]` (`DownmixMode` already was), so adding a filter shape or mode is no longer a breaking change. Code outside the crate that `match`es on them needs a `_ =>` arm.
+
 ### Added
 
 - **`Frame::StreamParams` across every stream filter** (oxideav-core

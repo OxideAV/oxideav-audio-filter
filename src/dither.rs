@@ -110,6 +110,7 @@ use oxideav_core::{AudioFrame, Result};
 
 /// Dither probability density applied before the rounder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DitherMode {
     /// Bare rounding — error correlates with the programme
     /// (distortion + deadband). Only for measurement / comparison.
@@ -125,6 +126,7 @@ pub enum DitherMode {
 
 /// Error-feedback noise-shaping order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NoiseShaping {
     /// Flat error spectrum (no feedback).
     Off,
