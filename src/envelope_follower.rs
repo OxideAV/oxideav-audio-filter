@@ -48,6 +48,7 @@ use oxideav_core::{AudioFrame, Result};
 
 /// Detector mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EnvelopeMode {
     /// Peak detector — `env ← LP(|x|)`.
     Peak,

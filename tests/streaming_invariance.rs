@@ -23,11 +23,7 @@ const FS: u32 = 48_000;
 const N: usize = 4_800; // 100 ms
 
 fn params(channels: u16) -> AudioStreamParams {
-    AudioStreamParams {
-        format: SampleFormat::F32,
-        channels,
-        sample_rate: FS,
-    }
+    AudioStreamParams::new(SampleFormat::F32, channels, FS)
 }
 
 /// Deterministic composite programme, `channels`-interleaved f32.
@@ -447,13 +443,11 @@ invariant!(
 // Its default stream shape is F32 stereo, so feed 2-channel frames.
 #[test]
 fn spectrogram() {
-    let opts = SpectrogramOptions {
-        fft_size: 256,
-        hop_size: 64,
-        width: 64,
-        height: 64,
-        ..SpectrogramOptions::default()
-    };
+    let opts = SpectrogramOptions::default()
+        .with_fft_size(256)
+        .with_hop_size(64)
+        .with_width(64)
+        .with_height(64);
     let programme = programme(2);
     let render = |chunk: usize| {
         let mut sg = Spectrogram::new(opts.clone()).expect("spectrogram");

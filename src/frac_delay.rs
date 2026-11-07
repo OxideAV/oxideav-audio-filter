@@ -63,6 +63,7 @@ use std::f64::consts::PI;
 /// Interpolation kernel used to reconstruct a sample at a fractional
 /// (between-sample) read position.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Interp {
     /// Two-tap linear blend. Cheapest, with a frequency-dependent
     /// treble roll-off deepest at `f = 0.5`.

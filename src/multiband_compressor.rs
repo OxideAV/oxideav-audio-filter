@@ -55,6 +55,7 @@ use oxideav_core::{AudioFrame, Result};
 
 /// Per-band compressor settings.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct BandSettings {
     pub threshold_db: f32,
     pub ratio: f32,
@@ -62,6 +63,44 @@ pub struct BandSettings {
     pub release_ms: f32,
     pub knee_db: f32,
     pub makeup_gain_db: f32,
+}
+
+impl BandSettings {
+    /// Set `threshold_db`.
+    pub fn with_threshold_db(mut self, threshold_db: f32) -> Self {
+        self.threshold_db = threshold_db;
+        self
+    }
+
+    /// Set `ratio`.
+    pub fn with_ratio(mut self, ratio: f32) -> Self {
+        self.ratio = ratio;
+        self
+    }
+
+    /// Set `attack_ms`.
+    pub fn with_attack_ms(mut self, attack_ms: f32) -> Self {
+        self.attack_ms = attack_ms;
+        self
+    }
+
+    /// Set `release_ms`.
+    pub fn with_release_ms(mut self, release_ms: f32) -> Self {
+        self.release_ms = release_ms;
+        self
+    }
+
+    /// Set `knee_db`.
+    pub fn with_knee_db(mut self, knee_db: f32) -> Self {
+        self.knee_db = knee_db;
+        self
+    }
+
+    /// Set `makeup_gain_db`.
+    pub fn with_makeup_gain_db(mut self, makeup_gain_db: f32) -> Self {
+        self.makeup_gain_db = makeup_gain_db;
+        self
+    }
 }
 
 impl BandSettings {

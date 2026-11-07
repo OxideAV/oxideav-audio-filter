@@ -68,6 +68,7 @@ use oxideav_core::{AudioFrame, Result};
 
 /// Crossover filter slope / topology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CrossoverSlope {
     /// Single Butterworth-2 per band, 12 dB/oct, −3 dB at `cutoff_hz`.
     /// Direct summation nulls at the crossover (LPF/HPF are 180° apart);

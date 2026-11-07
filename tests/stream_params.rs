@@ -405,15 +405,8 @@ fn meters_forward_event_and_pass_audio() {
 /// each second weighs the same on both sides of it.
 #[test]
 fn loudness_integrates_across_rate_change() {
-    let p441 = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: 44_100,
-    };
-    let p48 = AudioStreamParams {
-        sample_rate: 48_000,
-        ..p441
-    };
+    let p441 = AudioStreamParams::new(SampleFormat::F32, 1, 44_100);
+    let p48 = p441.with_sample_rate(48_000);
     let frame = |x: &[f32]| match f32_frame(x, 1) {
         Frame::Audio(a) => a,
         _ => unreachable!(),
@@ -441,15 +434,8 @@ fn loudness_integrates_across_rate_change() {
 /// A true-peak reading taken before the switch survives it.
 #[test]
 fn true_peak_reading_carries_over() {
-    let p441 = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: 44_100,
-    };
-    let p48 = AudioStreamParams {
-        sample_rate: 48_000,
-        ..p441
-    };
+    let p441 = AudioStreamParams::new(SampleFormat::F32, 1, 44_100);
+    let p48 = p441.with_sample_rate(48_000);
     let frame = |x: &[f32]| match f32_frame(x, 1) {
         Frame::Audio(a) => a,
         _ => unreachable!(),
@@ -777,15 +763,8 @@ fn check_after_change(
 #[test]
 fn compressor_envelope_carries_over_rate_change() {
     use oxideav_audio_filter::Compressor;
-    let p441 = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: 44_100,
-    };
-    let p48 = AudioStreamParams {
-        sample_rate: 48_000,
-        ..p441
-    };
+    let p441 = AudioStreamParams::new(SampleFormat::F32, 1, 44_100);
+    let p48 = p441.with_sample_rate(48_000);
     let frame = |x: &[f32]| match f32_frame(x, 1) {
         Frame::Audio(a) => a,
         _ => unreachable!(),

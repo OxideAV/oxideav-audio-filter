@@ -29,6 +29,7 @@ use oxideav_core::{
 mod colormaps;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Window {
     Hann,
     Hamming,
@@ -36,6 +37,7 @@ pub enum Window {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Colormap {
     Grayscale,
     Viridis,
@@ -44,6 +46,7 @@ pub enum Colormap {
 
 /// Spectrogram configuration.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct SpectrogramOptions {
     pub fft_size: usize,
     pub hop_size: usize,
@@ -52,6 +55,50 @@ pub struct SpectrogramOptions {
     pub width: u32,
     pub height: u32,
     pub colormap: Colormap,
+}
+
+impl SpectrogramOptions {
+    /// Set `fft_size`.
+    pub fn with_fft_size(mut self, fft_size: usize) -> Self {
+        self.fft_size = fft_size;
+        self
+    }
+
+    /// Set `hop_size`.
+    pub fn with_hop_size(mut self, hop_size: usize) -> Self {
+        self.hop_size = hop_size;
+        self
+    }
+
+    /// Set `window`.
+    pub fn with_window(mut self, window: Window) -> Self {
+        self.window = window;
+        self
+    }
+
+    /// Set `db_range`.
+    pub fn with_db_range(mut self, db_range: (f32, f32)) -> Self {
+        self.db_range = db_range;
+        self
+    }
+
+    /// Set `width`.
+    pub fn with_width(mut self, width: u32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Set `height`.
+    pub fn with_height(mut self, height: u32) -> Self {
+        self.height = height;
+        self
+    }
+
+    /// Set `colormap`.
+    pub fn with_colormap(mut self, colormap: Colormap) -> Self {
+        self.colormap = colormap;
+        self
+    }
 }
 
 impl Default for SpectrogramOptions {

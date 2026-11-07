@@ -10,9 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The public option enums `BiquadKind`, `Vowel`, `DitherMode`, `NoiseShaping`, `Window`, `CombMode`, `SvfMode` and `pre_emphasis::Curve` are now `#[non_exhaustive]` (`DownmixMode` already was), so adding a filter shape or mode is no longer a breaking change. Code outside the crate that `match`es on them needs a `_ =>` arm.
+- `CrossoverSlope`, `EnvelopeMode`, `Interp`, `spectrogram::Colormap` and `spectrogram::Window` are now `#[non_exhaustive]` too. `DetectorTopology` (feed-forward / feedback) and `MidSideMode` (encode / decode) stay exhaustive: both are closed two-way choices.
+- The records `AudioStreamParams`, `BandSettings` and `SpectrogramOptions` are now `#[non_exhaustive]`; build them with the constructors below instead of struct literals.
+- `sample_convert` (the shared sample-format / f32 helpers) is now `#[doc(hidden)]`.
 
 ### Added
 
+- `AudioStreamParams::new(format, channels, sample_rate)` plus `with_format` / `with_channels` / `with_sample_rate`; `BandSettings::with_*` for each field (start from `default_low` / `default_mid` / `default_high`); `SpectrogramOptions::with_*` for each field (start from `Default`).
 - **`Frame::StreamParams` across every stream filter** (oxideav-core
   0.1.43 contract): an upstream sample-rate / channel-count /
   sample-format change re-plans the filter. Shape-transparent filters

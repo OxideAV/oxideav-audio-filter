@@ -32,11 +32,7 @@ const HOSTILE: [f32; 7] = [
 ];
 
 fn params(channels: u16) -> AudioStreamParams {
-    AudioStreamParams {
-        format: SampleFormat::F32,
-        channels,
-        sample_rate: FS,
-    }
+    AudioStreamParams::new(SampleFormat::F32, channels, FS)
 }
 
 fn tone(channels: usize) -> AudioFrame {
@@ -149,30 +145,27 @@ hostile!(multiband_compressor, "multiband_compressor", 1, |h| {
     MultibandCompressor::with(
         h,
         h,
-        BandSettings {
-            threshold_db: h,
-            ratio: h,
-            attack_ms: h,
-            release_ms: h,
-            knee_db: h,
-            makeup_gain_db: h,
-        },
-        BandSettings {
-            threshold_db: h,
-            ratio: h,
-            attack_ms: h,
-            release_ms: h,
-            knee_db: h,
-            makeup_gain_db: h,
-        },
-        BandSettings {
-            threshold_db: h,
-            ratio: h,
-            attack_ms: h,
-            release_ms: h,
-            knee_db: h,
-            makeup_gain_db: h,
-        },
+        BandSettings::default_mid()
+            .with_threshold_db(h)
+            .with_ratio(h)
+            .with_attack_ms(h)
+            .with_release_ms(h)
+            .with_knee_db(h)
+            .with_makeup_gain_db(h),
+        BandSettings::default_mid()
+            .with_threshold_db(h)
+            .with_ratio(h)
+            .with_attack_ms(h)
+            .with_release_ms(h)
+            .with_knee_db(h)
+            .with_makeup_gain_db(h),
+        BandSettings::default_mid()
+            .with_threshold_db(h)
+            .with_ratio(h)
+            .with_attack_ms(h)
+            .with_release_ms(h)
+            .with_knee_db(h)
+            .with_makeup_gain_db(h),
     )
 });
 
@@ -348,22 +341,18 @@ fn spectrogram_rejects_hostile_options() {
     // fft_size: not a power of two / too small / absurdly large.
     for fft in [0usize, 7, 1 << 30, usize::MAX] {
         assert!(
-            Spectrogram::new(SpectrogramOptions {
-                fft_size: fft,
-                ..SpectrogramOptions::default()
-            })
-            .is_err(),
+            Spectrogram::new(SpectrogramOptions::default().with_fft_size(fft)).is_err(),
             "fft_size={fft} must be rejected"
         );
     }
     // hop_size: zero / larger than fft.
     for hop in [0usize, 2048] {
         assert!(
-            Spectrogram::new(SpectrogramOptions {
-                fft_size: 1024,
-                hop_size: hop,
-                ..SpectrogramOptions::default()
-            })
+            Spectrogram::new(
+                SpectrogramOptions::default()
+                    .with_fft_size(1024)
+                    .with_hop_size(hop)
+            )
             .is_err(),
             "hop_size={hop} must be rejected"
         );
@@ -371,19 +360,11 @@ fn spectrogram_rejects_hostile_options() {
     // width/height: zero / absurdly large.
     for dim in [0u32, u32::MAX] {
         assert!(
-            Spectrogram::new(SpectrogramOptions {
-                width: dim,
-                ..SpectrogramOptions::default()
-            })
-            .is_err(),
+            Spectrogram::new(SpectrogramOptions::default().with_width(dim)).is_err(),
             "width={dim} must be rejected"
         );
         assert!(
-            Spectrogram::new(SpectrogramOptions {
-                height: dim,
-                ..SpectrogramOptions::default()
-            })
-            .is_err(),
+            Spectrogram::new(SpectrogramOptions::default().with_height(dim)).is_err(),
             "height={dim} must be rejected"
         );
     }

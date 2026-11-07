@@ -13,11 +13,7 @@ use oxideav_core::{AudioFrame, SampleFormat};
 const FS: u32 = 48_000;
 
 fn params() -> AudioStreamParams {
-    AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: FS,
-    }
+    AudioStreamParams::new(SampleFormat::F32, 1, FS)
 }
 
 fn frame(s: &[f32]) -> AudioFrame {

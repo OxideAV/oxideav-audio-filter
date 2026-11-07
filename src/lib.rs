@@ -339,6 +339,8 @@ pub mod registry;
 pub mod resample;
 pub mod reverb;
 pub mod ring_modulator;
+// Internal: sample-format / f32 conversion helpers shared by the filters.
+#[doc(hidden)]
 pub mod sample_convert;
 pub mod silence_detector;
 pub mod slew_limiter;
@@ -444,10 +446,40 @@ use oxideav_core::{AudioFrame, CodecParameters, Result, SampleFormat};
 /// the input port spec at construction and re-supplies them per call so
 /// concrete filters don't have to negotiate per-frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AudioStreamParams {
     pub format: SampleFormat,
     pub channels: u16,
     pub sample_rate: u32,
+}
+
+impl AudioStreamParams {
+    /// Build a record from its mandatory fields.
+    pub fn new(format: SampleFormat, channels: u16, sample_rate: u32) -> Self {
+        Self {
+            format,
+            channels,
+            sample_rate,
+        }
+    }
+
+    /// Set `format`.
+    pub fn with_format(mut self, format: SampleFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// Set `channels`.
+    pub fn with_channels(mut self, channels: u16) -> Self {
+        self.channels = channels;
+        self
+    }
+
+    /// Set `sample_rate`.
+    pub fn with_sample_rate(mut self, sample_rate: u32) -> Self {
+        self.sample_rate = sample_rate;
+        self
+    }
 }
 
 impl AudioStreamParams {

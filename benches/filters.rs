@@ -207,11 +207,7 @@ fn bench_loudness_itu(c: &mut Criterion) {
     let n = fs as usize;
     let pcm = build_f32_pcm(n, 2);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 2,
-        sample_rate: fs,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 2, fs);
 
     let mut g = c.benchmark_group("loudness_itu");
     g.throughput(Throughput::Bytes((n * 2 * 4) as u64));
@@ -234,11 +230,7 @@ fn bench_compressor(c: &mut Criterion) {
     let n = fs as usize;
     let pcm = build_f32_pcm(n, 2);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 2,
-        sample_rate: fs,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 2, fs);
 
     let mut g = c.benchmark_group("compressor");
     g.throughput(Throughput::Bytes((n * 2 * 4) as u64));
@@ -260,11 +252,7 @@ fn bench_reverb(c: &mut Criterion) {
     let n = fs as usize;
     let pcm = build_f32_pcm(n, 2);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 2,
-        sample_rate: fs,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 2, fs);
 
     let mut g = c.benchmark_group("reverb");
     g.throughput(Throughput::Bytes((n * 2 * 4) as u64));
@@ -288,11 +276,7 @@ fn bench_resample_44k1_48k(c: &mut Criterion) {
     let n = src as usize;
     let pcm = build_f32_pcm(n, 1);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 1,
-        sample_rate: src,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 1, src);
 
     let mut g = c.benchmark_group("resample_44k1_48k");
     g.throughput(Throughput::Bytes((n * 4) as u64));
@@ -316,11 +300,7 @@ fn bench_true_peak_4x(c: &mut Criterion) {
     let n = fs as usize;
     let pcm = build_f32_pcm(n, 2);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 2,
-        sample_rate: fs,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 2, fs);
 
     let mut g = c.benchmark_group("true_peak_4x");
     g.throughput(Throughput::Bytes((n * 2 * 4) as u64));
@@ -343,11 +323,7 @@ fn bench_crossfeed(c: &mut Criterion) {
     let n = fs as usize;
     let pcm = build_f32_pcm(n, 2);
     let frame = build_audio_frame_f32(&pcm);
-    let params = AudioStreamParams {
-        format: SampleFormat::F32,
-        channels: 2,
-        sample_rate: fs,
-    };
+    let params = AudioStreamParams::new(SampleFormat::F32, 2, fs);
 
     let mut g = c.benchmark_group("crossfeed");
     g.throughput(Throughput::Bytes((n * 2 * 4) as u64));

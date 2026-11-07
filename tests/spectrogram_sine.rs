@@ -20,15 +20,14 @@ fn sine_frame(freq: f32, rate: u32, n: usize) -> AudioFrame {
 
 #[test]
 fn bright_band_at_440_hz() {
-    let opts = SpectrogramOptions {
-        fft_size: 1024,
-        hop_size: 256,
-        width: 64,
-        height: 1024 / 2 + 1,
-        db_range: (-90.0, 0.0),
-        colormap: Colormap::Grayscale,
-        window: Window::Hann,
-    };
+    let opts = SpectrogramOptions::default()
+        .with_fft_size(1024)
+        .with_hop_size(256)
+        .with_width(64)
+        .with_height(1024 / 2 + 1)
+        .with_db_range((-90.0, 0.0))
+        .with_colormap(Colormap::Grayscale)
+        .with_window(Window::Hann);
     // Stream-level shape (F32 mono 8 kHz) used to come off the
     // AudioFrame; with the slim it's seeded up front.
     let mut params = CodecParameters::audio(CodecId::new("pcm_f32le")).channels(1);
